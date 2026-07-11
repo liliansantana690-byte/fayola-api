@@ -3,3 +3,4 @@ node_modules
 target/
 .idea
 .mvn
+fayola-api/
