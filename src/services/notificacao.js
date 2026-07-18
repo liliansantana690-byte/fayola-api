@@ -7,6 +7,10 @@ async function enviarWhatsApp(numero, mensagem) {
         await axios.post(`${ZAPI_URL}/send-text`, {
             phone: `55${numero}`,
             message: mensagem
+        }, {
+            headers: {
+                'Client-Token': process.env.ZAPI_CLIENT_TOKEN
+            }
         });
         console.log('Mensagem enviada para:', numero);
     } catch (err) {
@@ -26,8 +30,7 @@ async function notificarAgendamento(agendamento) {
         `👤 Profissional: ${profissional}\n` +
         `📅 Data: ${data}\n` +
         `🕐 Horário: ${hora}\n\n` +
-        `Te esperamos! 😊\n\n` +
-        `_Powered by Fayola_`;
+        `Te esperamos! 😊`;
 
     await enviarWhatsApp(cliente_whatsapp, mensagem);
 }
@@ -38,11 +41,11 @@ async function enviarLembrete(agendamento) {
     const hora = new Date(data_hora).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
 
     const mensagem = `⏰ *Lembrete de Agendamento*\n\n` +
-    `Olá, ${cliente_nome}!\n\n` +
-    `Você tem um agendamento amanhã:\n\n` +
-    `✂️ Serviço: ${servico}\n` +
-    `🕐 Horário: ${hora}\n\n` +
-    `Te esperamos! 😊`;
+        `Olá, ${cliente_nome}!\n\n` +
+        `Você tem um agendamento amanhã:\n\n` +
+        `✂️ Serviço: ${servico}\n` +
+        `🕐 Horário: ${hora}\n\n` +
+        `Te esperamos! 😊`;
 
     await enviarWhatsApp(cliente_whatsapp, mensagem);
 }
