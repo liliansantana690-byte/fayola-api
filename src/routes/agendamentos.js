@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 const pool = require('../config/db');
 const autenticar = require('../middleware/auth');
-const { notificarAgendamento } = require('../services/notificacao');
+const { notificarAgendamento, notificarEstabelecimento } = require('../services/notificacao');
 
 // Criar agendamento (público — cliente agenda)
 router.post('/', async (req, res) => {
@@ -16,23 +16,30 @@ router.post('/', async (req, res) => {
 
         const agendamento = result.rows[0];
 
-        // Busca nome do serviço e profissional
         const detalhes = await pool.query(
-            `SELECT s.nome as servico, p.nome as profissional
-             FROM servicos s, profissionais p
-             WHERE s.id = $1 AND p.id = $2`,
-            [servico_id, profissional_id]
+            `SELECT s.nome as servico, p.nome as profissional, e.whatsapp as estabelecimento_whatsapp
+             FROM servicos s, profissionais p, estabelecimentos e
+             WHERE s.id = $1 AND p.id = $2 AND e.id = $3`,
+            [servico_id, profissional_id, estabelecimento_id]
         );
 
-        // Envia notificação WhatsApp
         try {
+            // Notifica o cliente
             await notificarAgendamento({
                 ...agendamento,
                 servico: detalhes.rows[0].servico,
                 profissional: detalhes.rows[0].profissional
             });
+
+            // Notifica o dono do estabelecimento
+            await notificarEstabelecimento({
+                ...agendamento,
+                servico: detalhes.rows[0].servico,
+                profissional: detalhes.rows[0].profissional,
+                estabelecimento_whatsapp: detalhes.rows[0].estabelecimento_whatsapp
+            });
         } catch (err) {
-            console.error('Erro ao enviar notificação:', err.message);
+            console.error('Erro ao enviar notificacao:', err.message);
         }
 
         res.status(201).json(agendamento);

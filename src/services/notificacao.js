@@ -35,6 +35,25 @@ async function notificarAgendamento(agendamento) {
     await enviarWhatsApp(cliente_whatsapp, mensagem);
 }
 
+async function notificarEstabelecimento(agendamento) {
+    const { cliente_nome, cliente_whatsapp, data_hora, servico, profissional, estabelecimento_whatsapp } = agendamento;
+
+    if (!estabelecimento_whatsapp) return;
+
+    const data = new Date(data_hora).toLocaleDateString('pt-BR');
+    const hora = new Date(data_hora).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+
+    const mensagem = `🔔 *Novo Agendamento!*\n\n` +
+        `👤 Cliente: ${cliente_nome}\n` +
+        `📱 WhatsApp: ${cliente_whatsapp}\n` +
+        `✂️ Serviço: ${servico}\n` +
+        `👨‍💼 Profissional: ${profissional}\n` +
+        `📅 Data: ${data}\n` +
+        `🕐 Horário: ${hora}`;
+
+    await enviarWhatsApp(estabelecimento_whatsapp, mensagem);
+}
+
 async function enviarLembrete(agendamento) {
     const { cliente_nome, cliente_whatsapp, data_hora, servico } = agendamento;
 
@@ -50,4 +69,4 @@ async function enviarLembrete(agendamento) {
     await enviarWhatsApp(cliente_whatsapp, mensagem);
 }
 
-module.exports = { notificarAgendamento, enviarLembrete };
+module.exports = { notificarAgendamento, notificarEstabelecimento, enviarLembrete };
