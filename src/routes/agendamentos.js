@@ -24,14 +24,12 @@ router.post('/', async (req, res) => {
         );
 
         try {
-            // Notifica o cliente
             await notificarAgendamento({
                 ...agendamento,
                 servico: detalhes.rows[0].servico,
                 profissional: detalhes.rows[0].profissional
             });
 
-            // Notifica o dono do estabelecimento
             await notificarEstabelecimento({
                 ...agendamento,
                 servico: detalhes.rows[0].servico,
@@ -48,8 +46,8 @@ router.post('/', async (req, res) => {
     }
 });
 
-// Listar agendamentos do estabelecimento (protegido)
-router.get('/', autenticar, async (req, res) => {
+// Todos os agendamentos do estabelecimento
+router.get('/todos', autenticar, async (req, res) => {
     const { id } = req.estabelecimento;
     try {
         const result = await pool.query(
@@ -80,6 +78,25 @@ router.get('/hoje', autenticar, async (req, res) => {
              AND DATE(a.data_hora) = CURRENT_DATE
              AND a.status = 'confirmado'
              ORDER BY a.data_hora ASC`,
+            [id]
+        );
+        res.json(result.rows);
+    } catch (err) {
+        res.status(500).json({ erro: err.message });
+    }
+});
+
+// Listar agendamentos do estabelecimento (protegido)
+router.get('/', autenticar, async (req, res) => {
+    const { id } = req.estabelecimento;
+    try {
+        const result = await pool.query(
+            `SELECT a.*, p.nome as profissional, s.nome as servico, s.preco
+             FROM agendamentos a
+             JOIN profissionais p ON a.profissional_id = p.id
+             JOIN servicos s ON a.servico_id = s.id
+             WHERE a.estabelecimento_id = $1
+             ORDER BY a.data_hora DESC`,
             [id]
         );
         res.json(result.rows);
