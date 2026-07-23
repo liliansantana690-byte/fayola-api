@@ -35,6 +35,7 @@ router.get('/:estabelecimento_id', async (req, res) => {
 // Excluir profissional
 router.delete('/:id', autenticar, async (req, res) => {
     try {
+        await pool.query('DELETE FROM agendamentos WHERE profissional_id = $1', [req.params.id]);
         await pool.query('DELETE FROM profissionais WHERE id = $1', [req.params.id]);
         res.json({ mensagem: 'Profissional excluído' });
     } catch (err) {

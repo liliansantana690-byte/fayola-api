@@ -35,6 +35,7 @@ router.get('/:estabelecimento_id', async (req, res) => {
 // Excluir serviço
 router.delete('/:id', autenticar, async (req, res) => {
     try {
+        await pool.query('DELETE FROM agendamentos WHERE servico_id = $1', [req.params.id]);
         await pool.query('DELETE FROM servicos WHERE id = $1', [req.params.id]);
         res.json({ mensagem: 'Serviço excluído' });
     } catch (err) {
