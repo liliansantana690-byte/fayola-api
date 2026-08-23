@@ -2,47 +2,68 @@ const express = require('express');
 const router = express.Router();
 const pool = require('../config/db');
 const autenticar = require('../middleware/auth');
-const { notificarAgendamento, notificarEstabelecimento } = require('../services/notificacao');
+const { criarPagamentoPix } = require('../services/pagamento');
 
-// Criar agendamento (público — cliente agenda)
+const DEPOSIT_PERCENT = Number(process.env.DEPOSIT_PERCENT || 30);
+const EXPIRATION_MINUTES = Number(process.env.DEPOSIT_EXPIRATION_MINUTES || 15);
+
+// Criar agendamento (público — cliente agenda e recebe cobrança PIX do sinal)
 router.post('/', async (req, res) => {
     const { estabelecimento_id, profissional_id, servico_id, cliente_nome, cliente_whatsapp, data_hora } = req.body;
     try {
+        const servicoResult = await pool.query('SELECT preco, nome FROM servicos WHERE id = $1', [servico_id]);
+        if (servicoResult.rows.length === 0) {
+            return res.status(400).json({ erro: 'Serviço não encontrado' });
+        }
+
+        const preco = parseFloat(servicoResult.rows[0].preco);
+        const sinalValor = Number(((preco * DEPOSIT_PERCENT) / 100).toFixed(2));
+        const expiraEm = new Date(Date.now() + EXPIRATION_MINUTES * 60 * 1000);
+
         const result = await pool.query(
-            `INSERT INTO agendamentos (estabelecimento_id, profissional_id, servico_id, cliente_nome, cliente_whatsapp, data_hora)
-             VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
-            [estabelecimento_id, profissional_id, servico_id, cliente_nome, cliente_whatsapp, data_hora]
+            `INSERT INTO agendamentos
+                (estabelecimento_id, profissional_id, servico_id, cliente_nome, cliente_whatsapp, data_hora, status, sinal_valor, sinal_status, expira_em)
+             VALUES ($1, $2, $3, $4, $5, $6, 'aguardando_pagamento', $7, 'pendente', $8) RETURNING *`,
+            [estabelecimento_id, profissional_id, servico_id, cliente_nome, cliente_whatsapp, data_hora, sinalValor, expiraEm]
         );
 
         const agendamento = result.rows[0];
 
-        const detalhes = await pool.query(
-            `SELECT s.nome as servico, p.nome as profissional, e.whatsapp as estabelecimento_whatsapp
-             FROM servicos s, profissionais p, estabelecimentos e
-             WHERE s.id = $1 AND p.id = $2 AND e.id = $3`,
-            [servico_id, profissional_id, estabelecimento_id]
-        );
+        const pix = await criarPagamentoPix({
+            valor: sinalValor,
+            descricao: `Sinal - ${servicoResult.rows[0].nome}`,
+            agendamentoId: agendamento.id,
+            clienteWhatsapp: cliente_whatsapp
+        });
 
-        try {
-            await notificarAgendamento({
-                ...agendamento,
-                servico: detalhes.rows[0].servico,
-                profissional: detalhes.rows[0].profissional
-            });
+        await pool.query('UPDATE agendamentos SET mp_payment_id = $1 WHERE id = $2', [pix.mp_payment_id, agendamento.id]);
 
-            await notificarEstabelecimento({
-                ...agendamento,
-                servico: detalhes.rows[0].servico,
-                profissional: detalhes.rows[0].profissional,
-                estabelecimento_whatsapp: detalhes.rows[0].estabelecimento_whatsapp
-            });
-        } catch (err) {
-            console.error('Erro ao enviar notificacao:', err.message);
-        }
-
-        res.status(201).json(agendamento);
+        res.status(201).json({
+            agendamento,
+            pagamento: {
+                qr_code: pix.qr_code,
+                qr_code_base64: pix.qr_code_base64,
+                expira_em: expiraEm
+            }
+        });
     } catch (err) {
         res.status(400).json({ erro: err.message });
+    }
+});
+
+// Status do agendamento (público — usado pelo frontend pra checar se o sinal foi pago)
+router.get('/:id/status', async (req, res) => {
+    try {
+        const result = await pool.query(
+            'SELECT id, status, sinal_status, expira_em FROM agendamentos WHERE id = $1',
+            [req.params.id]
+        );
+        if (result.rows.length === 0) {
+            return res.status(404).json({ erro: 'Agendamento não encontrado' });
+        }
+        res.json(result.rows[0]);
+    } catch (err) {
+        res.status(500).json({ erro: err.message });
     }
 });
 
