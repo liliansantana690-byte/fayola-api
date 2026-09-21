@@ -5,13 +5,13 @@ const autenticar = require('../middleware/auth');
 
 // Criar serviço
 router.post('/', autenticar, async (req, res) => {
-    const { nome, duracao_minutos, preco } = req.body;
+    const { nome, duracao_minutos, preco, comissao_percentual } = req.body;
     const { id } = req.estabelecimento;
     try {
         const result = await pool.query(
-            `INSERT INTO servicos (estabelecimento_id, nome, duracao_minutos, preco)
-             VALUES ($1, $2, $3, $4) RETURNING *`,
-            [id, nome, duracao_minutos, preco]
+            `INSERT INTO servicos (estabelecimento_id, nome, duracao_minutos, preco, comissao_percentual)
+             VALUES ($1, $2, $3, $4, $5) RETURNING *`,
+            [id, nome, duracao_minutos, preco, comissao_percentual || 0]
         );
         res.status(201).json(result.rows[0]);
     } catch (err) {
