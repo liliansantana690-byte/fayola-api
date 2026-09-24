@@ -128,11 +128,16 @@ router.get('/', autenticar, async (req, res) => {
 
 // Cancelar agendamento
 router.patch('/:id/cancelar', autenticar, async (req, res) => {
+    const { id: estabelecimentoId } = req.estabelecimento;
     try {
         const result = await pool.query(
-            `UPDATE agendamentos SET status = 'cancelado' WHERE id = $1 RETURNING *`,
-            [req.params.id]
+            `UPDATE agendamentos SET status = 'cancelado'
+             WHERE id = $1 AND estabelecimento_id = $2 RETURNING *`,
+            [req.params.id, estabelecimentoId]
         );
+        if (result.rows.length === 0) {
+            return res.status(404).json({ erro: 'Agendamento não encontrado' });
+        }
         res.json(result.rows[0]);
     } catch (err) {
         res.status(500).json({ erro: err.message });
