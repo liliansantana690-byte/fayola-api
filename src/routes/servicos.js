@@ -32,20 +32,20 @@ router.get('/:estabelecimento_id', async (req, res) => {
     }
 });
 
-// Excluir profissional
+// Excluir serviço
 router.delete('/:id', autenticar, async (req, res) => {
     const { id: estabelecimentoId } = req.estabelecimento;
     try {
         const verifica = await pool.query(
-            'SELECT id FROM profissionais WHERE id = $1 AND estabelecimento_id = $2',
+            'SELECT id FROM servicos WHERE id = $1 AND estabelecimento_id = $2',
             [req.params.id, estabelecimentoId]
         );
         if (verifica.rows.length === 0) {
-            return res.status(404).json({ erro: 'Profissional não encontrado' });
+            return res.status(404).json({ erro: 'Serviço não encontrado' });
         }
-        await pool.query('DELETE FROM agendamentos WHERE profissional_id = $1', [req.params.id]);
-        await pool.query('DELETE FROM profissionais WHERE id = $1', [req.params.id]);
-        res.json({ mensagem: 'Profissional excluído' });
+        await pool.query('DELETE FROM agendamentos WHERE servico_id = $1', [req.params.id]);
+        await pool.query('DELETE FROM servicos WHERE id = $1', [req.params.id]);
+        res.json({ mensagem: 'Serviço excluído' });
     } catch (err) {
         res.status(500).json({ erro: err.message });
     }
