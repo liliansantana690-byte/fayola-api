@@ -3,6 +3,7 @@ const router = express.Router();
 const pool = require('../config/db');
 const autenticar = require('../middleware/auth');
 const { criarPagamentoPix } = require('../services/pagamento');
+const { obterTokenValido } = require('../services/mercadoPagoOAuth');
 
 const DEPOSIT_PERCENT = Number(process.env.DEPOSIT_PERCENT || 30);
 const EXPIRATION_MINUTES = Number(process.env.DEPOSIT_EXPIRATION_MINUTES || 15);
@@ -11,6 +12,15 @@ const EXPIRATION_MINUTES = Number(process.env.DEPOSIT_EXPIRATION_MINUTES || 15);
 router.post('/', async (req, res) => {
     const { estabelecimento_id, profissional_id, servico_id, cliente_nome, cliente_whatsapp, data_hora } = req.body;
     try {
+        const estabResult = await pool.query('SELECT * FROM estabelecimentos WHERE id = $1', [estabelecimento_id]);
+        if (estabResult.rows.length === 0) {
+            return res.status(400).json({ erro: 'Estabelecimento não encontrado' });
+        }
+        const estabelecimento = estabResult.rows[0];
+        if (!estabelecimento.mp_conectado) {
+            return res.status(400).json({ erro: 'Este estabelecimento ainda não configurou o recebimento via Pix. Peça pro dono conectar o Mercado Pago no painel.' });
+        }
+
         const servicoResult = await pool.query('SELECT preco, nome FROM servicos WHERE id = $1', [servico_id]);
         if (servicoResult.rows.length === 0) {
             return res.status(400).json({ erro: 'Serviço não encontrado' });
@@ -29,7 +39,10 @@ router.post('/', async (req, res) => {
 
         const agendamento = result.rows[0];
 
+        const accessToken = await obterTokenValido(pool, estabelecimento);
+
         const pix = await criarPagamentoPix({
+            accessToken,
             valor: sinalValor,
             descricao: `Sinal - ${servicoResult.rows[0].nome}`,
             agendamentoId: agendamento.id,
@@ -47,7 +60,7 @@ router.post('/', async (req, res) => {
             }
         });
     } catch (err) {
-        res.status(400).json({ erro: err.message });
+        res.status(400).json({ erro: err.response?.data?.message || err.message });
     }
 });
 
