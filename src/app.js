@@ -10,11 +10,13 @@ const agendamentosRoutes = require('./routes/agendamentos');
 const servicosRoutes = require('./routes/servicos');
 const profissionaisRoutes = require('./routes/profissionais');
 const pagamentosRoutes = require('./routes/pagamentos');
+const mercadoPagoRoutes = require('./routes/mercadoPago');
 
 app.use('/api/auth', authRoutes);
 app.use('/api/agendamentos', agendamentosRoutes);
 app.use('/api/servicos', servicosRoutes);
 app.use('/api/profissionais', profissionaisRoutes);
 app.use('/api/pagamentos', pagamentosRoutes);
+app.use('/api/mercadopago', mercadoPagoRoutes);
 
 module.exports = app;

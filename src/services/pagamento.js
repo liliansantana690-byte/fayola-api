@@ -1,17 +1,18 @@
 const { MercadoPagoConfig, Payment } = require('mercadopago');
- 
-const client = new MercadoPagoConfig({ accessToken: process.env.MP_ACCESS_TOKEN });
-const paymentClient = new Payment(client);
- 
+
+function criarClientePix(accessToken) {
+    const client = new MercadoPagoConfig({ accessToken });
+    return new Payment(client);
+}
+
 /**
- * Cria uma cobrança PIX para o sinal de um agendamento.
- * OBS: Mercado Pago exige um e-mail do pagador. Como o Fayola só coleta WhatsApp
- * do cliente, geramos um e-mail sintético (não precisa ser real para o PIX processar).
- * Se quiser recibos por e-mail de verdade, é preciso coletar o e-mail no formulário.
+ * Cria uma cobrança PIX usando o access_token DO ESTABELECIMENTO (não um token fixo da plataforma).
+ * O dinheiro cai direto na conta Mercado Pago do dono do salão/barbearia.
  */
-async function criarPagamentoPix({ valor, descricao, agendamentoId, clienteWhatsapp }) {
+async function criarPagamentoPix({ accessToken, valor, descricao, agendamentoId, clienteWhatsapp }) {
+    const paymentClient = criarClientePix(accessToken);
     const emailPagador = `cliente${clienteWhatsapp}@fayola.app`;
- 
+
     const resultado = await paymentClient.create({
         body: {
             transaction_amount: Number(valor.toFixed(2)),
@@ -22,9 +23,9 @@ async function criarPagamentoPix({ valor, descricao, agendamentoId, clienteWhats
             notification_url: `${process.env.APP_API_URL}/api/pagamentos/webhook`
         }
     });
- 
+
     const dadosTransacao = resultado.point_of_interaction.transaction_data;
- 
+
     return {
         mp_payment_id: resultado.id,
         status: resultado.status,
@@ -32,10 +33,10 @@ async function criarPagamentoPix({ valor, descricao, agendamentoId, clienteWhats
         qr_code_base64: dadosTransacao.qr_code_base64
     };
 }
- 
-async function consultarPagamento(paymentId) {
+
+async function consultarPagamento(accessToken, paymentId) {
+    const paymentClient = criarClientePix(accessToken);
     return paymentClient.get({ id: paymentId });
 }
- 
+
 module.exports = { criarPagamentoPix, consultarPagamento };
- 
