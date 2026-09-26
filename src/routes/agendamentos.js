@@ -60,6 +60,8 @@ router.post('/', async (req, res) => {
             }
         });
     } catch (err) {
+        
+        console.error('ERRO AO CRIAR AGENDAMENTO:', err.response?.data || err.message);
         res.status(400).json({ erro: err.response?.data?.message || err.message });
     }
 });
