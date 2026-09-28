@@ -4,6 +4,10 @@ const pool = require('../config/db');
 const autenticar = require('../middleware/auth');
 const autenticarProfissional = require('../middleware/authProfissional');
 const { notificarOrcamentoTattoo } = require('../services/notificacao');
+const { criarPagamentoPix } = require('../services/pagamento');
+const { obterTokenValido } = require('../services/mercadoPagoOAuth');
+
+const EXPIRATION_MINUTES = Number(process.env.DEPOSIT_EXPIRATION_MINUTES || 15);
 
 // Cliente envia o pedido de tattoo (público)
 router.post('/', async (req, res) => {
@@ -35,16 +39,96 @@ router.post('/', async (req, res) => {
     }
 });
 
-// Status do pedido (público — cliente confere se já tem orçamento)
+// Status do pedido (público — cliente confere se já tem orçamento / se o sinal foi pago)
 router.get('/:id/status', async (req, res) => {
     try {
         const result = await pool.query(
-            'SELECT id, status, valor_tattoo, valor_sinal, agendamento_id FROM pedidos_tattoo WHERE id = $1',
+            `SELECT id, status, sinal_status, valor_tattoo, valor_sinal, pix_expira_em, data_hora
+             FROM pedidos_tattoo WHERE id = $1`,
             [req.params.id]
         );
         if (result.rows.length === 0) {
             return res.status(404).json({ erro: 'Pedido não encontrado' });
         }
+        res.json(result.rows[0]);
+    } catch (err) {
+        res.status(500).json({ erro: err.message });
+    }
+});
+
+// Gerar o PIX do sinal — só funciona depois que o tatuador já enviou o orçamento
+router.post('/:id/gerar-pix', async (req, res) => {
+    try {
+        const pedidoResult = await pool.query('SELECT * FROM pedidos_tattoo WHERE id = $1', [req.params.id]);
+        if (pedidoResult.rows.length === 0) {
+            return res.status(404).json({ erro: 'Pedido não encontrado' });
+        }
+        const pedido = pedidoResult.rows[0];
+
+        if (pedido.status !== 'orcamento_enviado') {
+            return res.status(400).json({ erro: 'Este pedido ainda não tem um orçamento definido pelo tatuador' });
+        }
+        if (pedido.sinal_status === 'pago') {
+            return res.status(400).json({ erro: 'O sinal deste pedido já foi pago' });
+        }
+
+        const estabResult = await pool.query('SELECT * FROM estabelecimentos WHERE id = $1', [pedido.estabelecimento_id]);
+        const estabelecimento = estabResult.rows[0];
+        if (!estabelecimento.mp_conectado) {
+            return res.status(400).json({ erro: 'Este estabelecimento ainda não configurou o recebimento via Pix' });
+        }
+
+        const accessToken = await obterTokenValido(pool, estabelecimento);
+        const expiraEm = new Date(Date.now() + EXPIRATION_MINUTES * 60 * 1000);
+
+        const pix = await criarPagamentoPix({
+            accessToken,
+            valor: parseFloat(pedido.valor_sinal),
+            descricao: 'Sinal - Tattoo',
+            agendamentoId: `tattoo-${pedido.id}`,
+            clienteWhatsapp: pedido.cliente_whatsapp
+        });
+
+        await pool.query(
+            `UPDATE pedidos_tattoo SET mp_payment_id = $1, pix_expira_em = $2 WHERE id = $3`,
+            [pix.mp_payment_id, expiraEm, pedido.id]
+        );
+
+        res.json({
+            qr_code: pix.qr_code,
+            qr_code_base64: pix.qr_code_base64,
+            expira_em: expiraEm
+        });
+    } catch (err) {
+        console.error('ERRO AO GERAR PIX DO PEDIDO DE TATTOO:', err.response?.data || err.message);
+        res.status(400).json({ erro: err.response?.data?.message || err.message });
+    }
+});
+
+// Cliente escolhe o horário depois de pagar o sinal
+router.patch('/:id/confirmar-horario', async (req, res) => {
+    const { data_hora } = req.body;
+    try {
+        if (!data_hora) {
+            return res.status(400).json({ erro: 'Informe a data e horário' });
+        }
+
+        const pedidoResult = await pool.query('SELECT * FROM pedidos_tattoo WHERE id = $1', [req.params.id]);
+        if (pedidoResult.rows.length === 0) {
+            return res.status(404).json({ erro: 'Pedido não encontrado' });
+        }
+        const pedido = pedidoResult.rows[0];
+
+        if (pedido.sinal_status !== 'pago') {
+            return res.status(400).json({ erro: 'O sinal ainda não foi pago' });
+        }
+
+        const result = await pool.query(
+            `UPDATE pedidos_tattoo SET data_hora = $1, status = 'convertido_agendamento', atualizado_em = NOW()
+             WHERE id = $2 RETURNING *`,
+            [data_hora, req.params.id]
+        );
+
         res.json(result.rows[0]);
     } catch (err) {
         res.status(500).json({ erro: err.message });

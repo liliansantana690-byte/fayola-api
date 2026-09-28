@@ -24,13 +24,25 @@ router.post('/webhook', async (req, res) => {
         const estabelecimento = estabResult.rows[0];
         const accessToken = await obterTokenValido(pool, estabelecimento);
 
-        const pagamento = await consultarPagamento(accessToken, paymentId);
+                const pagamento = await consultarPagamento(accessToken, paymentId);
 
         if (pagamento.status !== 'approved') {
             return res.sendStatus(200);
         }
 
-        const agendamentoId = pagamento.external_reference;
+        const referencia = pagamento.external_reference;
+
+        // Pagamento de sinal de PEDIDO DE TATTOO (referência tem o prefixo "tattoo-")
+        if (referencia.startsWith('tattoo-')) {
+            const pedidoId = referencia.replace('tattoo-', '');
+            const resultPedido = await pool.query(
+                `UPDATE pedidos_tattoo SET sinal_status = 'pago' WHERE id = $1 AND estabelecimento_id = $2 AND sinal_status != 'pago' RETURNING *`,
+                [pedidoId, estabelecimento.id]
+            );
+            return res.sendStatus(200);
+        }
+
+        const agendamentoId = referencia;
 
         // sinal_status != 'pago' evita reprocessar/duplicar notificação em reenvios do webhook
         const result = await pool.query(
