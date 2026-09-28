@@ -11,6 +11,7 @@ const servicosRoutes = require('./routes/servicos');
 const profissionaisRoutes = require('./routes/profissionais');
 const pagamentosRoutes = require('./routes/pagamentos');
 const mercadoPagoRoutes = require('./routes/mercadoPago');
+const pedidosTattooRoutes = require('./routes/pedidosTattoo');
 
 app.use('/api/auth', authRoutes);
 app.use('/api/agendamentos', agendamentosRoutes);
@@ -18,5 +19,6 @@ app.use('/api/servicos', servicosRoutes);
 app.use('/api/profissionais', profissionaisRoutes);
 app.use('/api/pagamentos', pagamentosRoutes);
 app.use('/api/mercadopago', mercadoPagoRoutes);
+app.use('/api/pedidos-tattoo', pedidosTattooRoutes);
 
 module.exports = app;
