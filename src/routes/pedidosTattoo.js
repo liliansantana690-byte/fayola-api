@@ -3,6 +3,7 @@ const router = express.Router();
 const pool = require('../config/db');
 const autenticar = require('../middleware/auth');
 const autenticarProfissional = require('../middleware/authProfissional');
+const { notificarOrcamentoTattoo } = require('../services/notificacao');
 
 // Cliente envia o pedido de tattoo (público)
 router.post('/', async (req, res) => {
@@ -38,7 +39,7 @@ router.post('/', async (req, res) => {
 router.get('/:id/status', async (req, res) => {
     try {
         const result = await pool.query(
-            'SELECT id, status, valor_tattoo, valor_sinal FROM pedidos_tattoo WHERE id = $1',
+            'SELECT id, status, valor_tattoo, valor_sinal, agendamento_id FROM pedidos_tattoo WHERE id = $1',
             [req.params.id]
         );
         if (result.rows.length === 0) {
@@ -81,7 +82,7 @@ router.get('/meus-pedidos', autenticarProfissional, async (req, res) => {
     }
 });
 
-// Profissional define o orçamento (valor da tattoo + sinal)
+// Profissional define o orçamento (valor da tattoo + sinal) — dispara WhatsApp pro cliente
 router.patch('/:id/orcamento', autenticarProfissional, async (req, res) => {
     const { valor_tattoo, valor_sinal } = req.body;
     try {
@@ -101,7 +102,15 @@ router.patch('/:id/orcamento', autenticarProfissional, async (req, res) => {
             return res.status(404).json({ erro: 'Pedido não encontrado' });
         }
 
-        res.json(result.rows[0]);
+        const pedido = result.rows[0];
+
+        try {
+            await notificarOrcamentoTattoo({ ...pedido, link_base: process.env.APP_FRONTEND_URL });
+        } catch (err) {
+            console.error('Erro ao notificar orçamento tattoo:', err.message);
+        }
+
+        res.json(pedido);
     } catch (err) {
         res.status(500).json({ erro: err.message });
     }
