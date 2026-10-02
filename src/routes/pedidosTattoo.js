@@ -7,7 +7,7 @@ const { notificarOrcamentoTattoo } = require('../services/notificacao');
 const { criarPagamentoPix } = require('../services/pagamento');
 const { obterTokenValido } = require('../services/mercadoPagoOAuth');
 
-const EXPIRATION_MINUTES = Number(process.env.DEPOSIT_EXPIRATION_MINUTES || 15);
+const EXPIRATION_MINUTES = Number(process.env.DEPOSIT_EXPIRATION_MINUTES) || 15;
 
 // Cliente envia o pedido de tattoo (público)
 router.post('/', async (req, res) => {
