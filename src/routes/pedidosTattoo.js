@@ -43,7 +43,8 @@ router.post('/', async (req, res) => {
 router.get('/:id/status', async (req, res) => {
     try {
         const result = await pool.query(
-            `SELECT id, status, sinal_status, valor_tattoo, valor_sinal, pix_expira_em, data_hora
+            `SELECT id, estabelecimento_id, profissional_id, status, sinal_status,
+                    valor_tattoo, valor_sinal, duracao_minutos, pix_expira_em, data_hora
              FROM pedidos_tattoo WHERE id = $1`,
             [req.params.id]
         );
@@ -51,6 +52,35 @@ router.get('/:id/status', async (req, res) => {
             return res.status(404).json({ erro: 'Pedido não encontrado' });
         }
         res.json(result.rows[0]);
+    } catch (err) {
+        res.status(500).json({ erro: err.message });
+    }
+});
+
+// Horários já ocupados de um profissional num dia (público — usado pra cliente ver o que já está marcado)
+router.get('/horarios-ocupados', async (req, res) => {
+    const { profissional_id, data } = req.query;
+    try {
+        if (!profissional_id || !data) {
+            return res.status(400).json({ erro: 'Informe profissional_id e data (YYYY-MM-DD)' });
+        }
+
+        const result = await pool.query(
+            `SELECT data_hora, duracao_minutos
+             FROM pedidos_tattoo
+             WHERE profissional_id = $1
+               AND status = 'convertido_agendamento'
+               AND DATE(data_hora) = $2`,
+            [profissional_id, data]
+        );
+
+        const ocupados = result.rows.map(function(r) {
+            const inicio = new Date(r.data_hora);
+            const fim = new Date(inicio.getTime() + r.duracao_minutos * 60 * 1000);
+            return { inicio: inicio.toISOString(), fim: fim.toISOString() };
+        });
+
+        res.json(ocupados);
     } catch (err) {
         res.status(500).json({ erro: err.message });
     }
@@ -105,7 +135,7 @@ router.post('/:id/gerar-pix', async (req, res) => {
     }
 });
 
-// Cliente escolhe o horário depois de pagar o sinal
+// Cliente escolhe o horário depois de pagar o sinal — recusa se bater com outro agendamento do mesmo profissional
 router.patch('/:id/confirmar-horario', async (req, res) => {
     const { data_hora } = req.body;
     try {
@@ -121,6 +151,31 @@ router.patch('/:id/confirmar-horario', async (req, res) => {
 
         if (pedido.sinal_status !== 'pago') {
             return res.status(400).json({ erro: 'O sinal ainda não foi pago' });
+        }
+
+        const duracaoMinutos = pedido.duracao_minutos || 120;
+        const inicioNovo = new Date(data_hora);
+        const fimNovo = new Date(inicioNovo.getTime() + duracaoMinutos * 60 * 1000);
+
+        if (pedido.profissional_id) {
+            const conflitosResult = await pool.query(
+                `SELECT id, data_hora, duracao_minutos
+                 FROM pedidos_tattoo
+                 WHERE profissional_id = $1
+                   AND status = 'convertido_agendamento'
+                   AND id != $2`,
+                [pedido.profissional_id, pedido.id]
+            );
+
+            const temConflito = conflitosResult.rows.some(function(outro) {
+                const inicioOutro = new Date(outro.data_hora);
+                const fimOutro = new Date(inicioOutro.getTime() + (outro.duracao_minutos || 120) * 60 * 1000);
+                return inicioNovo < fimOutro && inicioOutro < fimNovo;
+            });
+
+            if (temConflito) {
+                return res.status(409).json({ erro: 'Esse horário já está ocupado para este profissional. Escolha outro horário.' });
+            }
         }
 
         const result = await pool.query(
@@ -166,9 +221,9 @@ router.get('/meus-pedidos', autenticarProfissional, async (req, res) => {
     }
 });
 
-// Profissional define o orçamento (valor da tattoo + sinal) — dispara WhatsApp pro cliente
+// Profissional define o orçamento (valor da tattoo + sinal + duração da sessão) — dispara WhatsApp pro cliente
 router.patch('/:id/orcamento', autenticarProfissional, async (req, res) => {
-    const { valor_tattoo, valor_sinal } = req.body;
+    const { valor_tattoo, valor_sinal, duracao_minutos } = req.body;
     try {
         if (!valor_tattoo || !valor_sinal) {
             return res.status(400).json({ erro: 'Informe o valor da tattoo e do sinal' });
@@ -176,10 +231,10 @@ router.patch('/:id/orcamento', autenticarProfissional, async (req, res) => {
 
         const result = await pool.query(
             `UPDATE pedidos_tattoo
-             SET valor_tattoo = $1, valor_sinal = $2, status = 'orcamento_enviado', atualizado_em = NOW()
-             WHERE id = $3 AND profissional_id = $4
+             SET valor_tattoo = $1, valor_sinal = $2, duracao_minutos = $3, status = 'orcamento_enviado', atualizado_em = NOW()
+             WHERE id = $4 AND profissional_id = $5
              RETURNING *`,
-            [valor_tattoo, valor_sinal, req.params.id, req.profissional.id]
+            [valor_tattoo, valor_sinal, duracao_minutos || 120, req.params.id, req.profissional.id]
         );
 
         if (result.rows.length === 0) {
