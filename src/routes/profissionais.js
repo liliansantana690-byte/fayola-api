@@ -216,7 +216,7 @@ router.get('/:estabelecimento_id', async (req, res) => {
 });
 
 // Excluir profissional
-router.delete('/:id', autenticar, async (req, res) => {
+    router.delete('/:id', autenticar, async (req, res) => {
     const { id: estabelecimentoId } = req.estabelecimento;
     try {
         const verifica = await pool.query(
@@ -226,10 +226,12 @@ router.delete('/:id', autenticar, async (req, res) => {
         if (verifica.rows.length === 0) {
             return res.status(404).json({ erro: 'Profissional não encontrado' });
         }
+        await pool.query('UPDATE pedidos_tattoo SET profissional_id = NULL WHERE profissional_id = $1', [req.params.id]);
         await pool.query('DELETE FROM agendamentos WHERE profissional_id = $1', [req.params.id]);
         await pool.query('DELETE FROM profissionais WHERE id = $1', [req.params.id]);
         res.json({ mensagem: 'Profissional excluído' });
     } catch (err) {
+        console.error('ERRO AO EXCLUIR PROFISSIONAL:', err.message);
         res.status(500).json({ erro: err.message });
     }
 });
