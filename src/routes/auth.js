@@ -3,6 +3,13 @@ const router = express.Router();
 const pool = require('../config/db');
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
+const rateLimit = require('express-rate-limit');
+
+const loginLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000,
+    max: 10,
+    message: { erro: 'Muitas tentativas de login. Tente novamente em alguns minutos.' }
+});
 
 // Cadastro do estabelecimento
 router.post('/cadastro', async (req, res) => {
@@ -21,7 +28,7 @@ router.post('/cadastro', async (req, res) => {
 });
 
 // Login do estabelecimento
-router.post('/login', async (req, res) => {
+router.post('/login', loginLimiter, async (req, res) => {
     const { email, senha } = req.body;
     try {
         const result = await pool.query(
@@ -34,7 +41,7 @@ router.post('/login', async (req, res) => {
         const valido = await bcrypt.compare(senha, estabelecimento.senha);
         if (!valido) return res.status(401).json({ erro: 'Senha incorreta' });
 
-                const token = jwt.sign(
+        const token = jwt.sign(
             { id: estabelecimento.id, nome: estabelecimento.nome, tipo: 'estabelecimento' },
             process.env.JWT_SECRET,
             { expiresIn: '7d' }
