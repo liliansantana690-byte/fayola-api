@@ -6,6 +6,9 @@ function autenticar(req, res, next) {
 
     try {
         const dados = jwt.verify(token, process.env.JWT_SECRET);
+        if (dados.tipo !== 'estabelecimento') {
+            return res.status(403).json({ erro: 'Acesso negado' });
+        }
         req.estabelecimento = dados;
         next();
     } catch (err) {
