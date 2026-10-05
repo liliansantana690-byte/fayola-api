@@ -3,9 +3,16 @@ const router = express.Router();
 const crypto = require('crypto');
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
+const rateLimit = require('express-rate-limit');
 const pool = require('../config/db');
 const autenticar = require('../middleware/auth');
 const autenticarProfissional = require('../middleware/authProfissional');
+
+const loginLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000,
+    max: 10,
+    message: { erro: 'Muitas tentativas de login. Tente novamente em alguns minutos.' }
+}); 
 
 // Criar profissional (dono) — gera convite pra ele definir a própria senha
 router.post('/', autenticar, async (req, res) => {
