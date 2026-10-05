@@ -152,7 +152,7 @@ router.post('/convite/:token/ativar', async (req, res) => {
 });
 
 // Login do profissional (WhatsApp + senha)
-router.post('/login', async (req, res) => {
+router.post('/login', loginLimiter, async (req, res) => {
     const { whatsapp, senha } = req.body;
     try {
         const result = await pool.query(
