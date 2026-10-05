@@ -34,8 +34,8 @@ router.post('/login', async (req, res) => {
         const valido = await bcrypt.compare(senha, estabelecimento.senha);
         if (!valido) return res.status(401).json({ erro: 'Senha incorreta' });
 
-        const token = jwt.sign(
-            { id: estabelecimento.id, nome: estabelecimento.nome },
+                const token = jwt.sign(
+            { id: estabelecimento.id, nome: estabelecimento.nome, tipo: 'estabelecimento' },
             process.env.JWT_SECRET,
             { expiresIn: '7d' }
         );
