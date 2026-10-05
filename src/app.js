@@ -2,7 +2,21 @@ const express = require('express');
 const cors = require('cors');
 const app = express();
 
-app.use(cors());
+const origensPermitidas = [
+    'http://localhost:3000',
+    'https://fayola-frontend-hlfj.vercel.app',
+    process.env.APP_FRONTEND_URL
+].filter(Boolean);
+
+app.use(cors({
+    origin: function(origin, callback) {
+        if (!origin || origensPermitidas.includes(origin)) {
+            callback(null, true);
+        } else {
+            callback(new Error('Origem não permitida pelo CORS'));
+        }
+    }
+}));
 app.use(express.json());
 
 const authRoutes = require('./routes/auth');

@@ -1,5 +1,6 @@
 const express = require('express');
 const router = express.Router();
+const crypto = require('crypto');
 const pool = require('../config/db');
 const autenticar = require('../middleware/auth');
 const autenticarProfissional = require('../middleware/authProfissional');
@@ -21,15 +22,17 @@ router.post('/', async (req, res) => {
             return res.status(400).json({ erro: 'Descrição, nome e WhatsApp são obrigatórios' });
         }
 
+        const tokenAcesso = crypto.randomBytes(24).toString('hex');
+
         const result = await pool.query(
             `INSERT INTO pedidos_tattoo
                 (estabelecimento_id, profissional_id, cliente_nome, cliente_whatsapp,
-                 descricao, estilo, tamanho_aproximado, local_corpo, referencia_url, observacoes)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING *`,
+                 descricao, estilo, tamanho_aproximado, local_corpo, referencia_url, observacoes, token_acesso)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) RETURNING *`,
             [
                 estabelecimento_id, profissional_id || null, cliente_nome, cliente_whatsapp,
                 descricao, estilo || null, tamanho_aproximado || null, local_corpo || null,
-                referencia_url || null, observacoes || null
+                referencia_url || null, observacoes || null, tokenAcesso
             ]
         );
 
@@ -39,14 +42,14 @@ router.post('/', async (req, res) => {
     }
 });
 
-// Status do pedido (público — cliente confere se já tem orçamento / se o sinal foi pago)
-router.get('/:id/status', async (req, res) => {
+// Status do pedido (público — identificado pelo token secreto, não pelo ID numérico)
+router.get('/:token/status', async (req, res) => {
     try {
         const result = await pool.query(
             `SELECT id, estabelecimento_id, profissional_id, status, sinal_status,
                     valor_tattoo, valor_sinal, duracao_minutos, pix_expira_em, data_hora
-             FROM pedidos_tattoo WHERE id = $1`,
-            [req.params.id]
+             FROM pedidos_tattoo WHERE token_acesso = $1`,
+            [req.params.token]
         );
         if (result.rows.length === 0) {
             return res.status(404).json({ erro: 'Pedido não encontrado' });
@@ -86,10 +89,10 @@ router.get('/horarios-ocupados', async (req, res) => {
     }
 });
 
-// Gerar o PIX do sinal — só funciona depois que o tatuador já enviou o orçamento
-router.post('/:id/gerar-pix', async (req, res) => {
+// Gerar o PIX do sinal — identificado pelo token secreto
+router.post('/:token/gerar-pix', async (req, res) => {
     try {
-        const pedidoResult = await pool.query('SELECT * FROM pedidos_tattoo WHERE id = $1', [req.params.id]);
+        const pedidoResult = await pool.query('SELECT * FROM pedidos_tattoo WHERE token_acesso = $1', [req.params.token]);
         if (pedidoResult.rows.length === 0) {
             return res.status(404).json({ erro: 'Pedido não encontrado' });
         }
@@ -135,15 +138,15 @@ router.post('/:id/gerar-pix', async (req, res) => {
     }
 });
 
-// Cliente escolhe o horário depois de pagar o sinal — recusa se bater com outro agendamento do mesmo profissional
-router.patch('/:id/confirmar-horario', async (req, res) => {
+// Cliente escolhe o horário depois de pagar o sinal — identificado pelo token secreto
+router.patch('/:token/confirmar-horario', async (req, res) => {
     const { data_hora } = req.body;
     try {
         if (!data_hora) {
             return res.status(400).json({ erro: 'Informe a data e horário' });
         }
 
-        const pedidoResult = await pool.query('SELECT * FROM pedidos_tattoo WHERE id = $1', [req.params.id]);
+        const pedidoResult = await pool.query('SELECT * FROM pedidos_tattoo WHERE token_acesso = $1', [req.params.token]);
         if (pedidoResult.rows.length === 0) {
             return res.status(404).json({ erro: 'Pedido não encontrado' });
         }
@@ -181,7 +184,7 @@ router.patch('/:id/confirmar-horario', async (req, res) => {
         const result = await pool.query(
             `UPDATE pedidos_tattoo SET data_hora = $1, status = 'convertido_agendamento', atualizado_em = NOW()
              WHERE id = $2 RETURNING *`,
-            [data_hora, req.params.id]
+            [data_hora, pedido.id]
         );
 
         res.json(result.rows[0]);

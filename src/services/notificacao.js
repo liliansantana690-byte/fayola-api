@@ -70,13 +70,13 @@ async function enviarLembrete(agendamento) {
 }
 
 async function notificarOrcamentoTattoo(pedido) {
-    const { cliente_nome, cliente_whatsapp, valor_tattoo, valor_sinal, id, link_base } = pedido;
+    const { cliente_nome, cliente_whatsapp, valor_tattoo, valor_sinal, token_acesso, link_base } = pedido;
 
     const mensagem = `🎨 *Seu orçamento está pronto!*\n\n` +
         `Olá, ${cliente_nome}!\n\n` +
         `💰 Valor da tattoo: R$ ${parseFloat(valor_tattoo).toFixed(2)}\n` +
         `💳 Sinal para reservar: R$ ${parseFloat(valor_sinal).toFixed(2)}\n\n` +
-        `Acesse o link pra pagar o sinal e escolher o horário:\n${link_base}/pedido-tattoo/${id}`;
+        `Acesse o link pra pagar o sinal e escolher o horário:\n${link_base}/pedido-tattoo/${token_acesso}`;
 
     await enviarWhatsApp(cliente_whatsapp, mensagem);
 }

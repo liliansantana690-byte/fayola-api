@@ -142,19 +142,6 @@ router.post('/', async (req, res) => {
         );
 
         // -------------------------------------------------
-        // DEBUG — DATA RECEBIDA
-        // -------------------------------------------------
-        console.log('DEBUG AGENDAMENTO:', {
-            estabelecimento_id,
-            profissional_id,
-            servico_id,
-            cliente_nome,
-            cliente_whatsapp,
-            data_hora,
-            dataHoraAgendamento,
-            tipo_data_hora: typeof data_hora,
-            sinalValor
-        });
 
         // -------------------------------------------------
         // CRIAR AGENDAMENTO NO BANCO
