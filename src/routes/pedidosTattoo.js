@@ -156,11 +156,35 @@ router.patch('/:token/confirmar-horario', async (req, res) => {
             return res.status(400).json({ erro: 'O sinal ainda não foi pago' });
         }
 
-        const duracaoMinutos = pedido.duracao_minutos || 120;
+                const duracaoMinutos = pedido.duracao_minutos || 120;
         const inicioNovo = new Date(data_hora);
         const fimNovo = new Date(inicioNovo.getTime() + duracaoMinutos * 60 * 1000);
 
         if (pedido.profissional_id) {
+            const dataSomente = data_hora.split('T')[0];
+            const diaSemana = inicioNovo.getDay();
+
+            const bloqueioResult = await pool.query(
+                `SELECT id FROM dias_bloqueados WHERE profissional_id = $1 AND data = $2`,
+                [pedido.profissional_id, dataSomente]
+            );
+            if (bloqueioResult.rows.length > 0) {
+                return res.status(409).json({ erro: 'O profissional não atende nesse dia. Escolha outra data.' });
+            }
+
+            const horarioResult = await pool.query(
+                `SELECT hora_inicio, hora_fim FROM horarios_profissional
+                 WHERE profissional_id = $1 AND dia_semana = $2`,
+                [pedido.profissional_id, diaSemana]
+            );
+            const horaEscolhida = inicioNovo.toTimeString().slice(0, 8);
+            const dentroDoExpediente = horarioResult.rows.some(function(h) {
+                return horaEscolhida >= h.hora_inicio && horaEscolhida <= h.hora_fim;
+            });
+            if (!dentroDoExpediente) {
+                return res.status(409).json({ erro: 'Esse horário está fora do expediente do profissional. Escolha outro horário.' });
+            }
+            
             const conflitosResult = await pool.query(
                 `SELECT id, data_hora, duracao_minutos
                  FROM pedidos_tattoo
