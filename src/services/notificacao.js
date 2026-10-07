@@ -81,4 +81,14 @@ async function notificarOrcamentoTattoo(pedido) {
     await enviarWhatsApp(cliente_whatsapp, mensagem);
 }
 
-module.exports = { notificarAgendamento, notificarEstabelecimento, enviarLembrete, notificarOrcamentoTattoo };
+async function notificarNovoCadastro(estabelecimento) {
+    const mensagem = `🆕 *Novo cadastro no Fayola*\n\n` +
+        `Nome: ${estabelecimento.nome}\n` +
+        `E-mail: ${estabelecimento.email}\n` +
+        `Telefone: ${estabelecimento.telefone}\n\n` +
+        `Aguardando sua aprovação.`;
+
+    await enviarWhatsApp(process.env.ADMIN_WHATSAPP, mensagem);
+}
+
+module.exports = { notificarNovoCadastro, notificarAgendamento, notificarEstabelecimento, enviarLembrete, notificarOrcamentoTattoo };
