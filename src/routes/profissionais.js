@@ -7,16 +7,12 @@ const rateLimit = require('express-rate-limit');
 const pool = require('../config/db');
 const autenticar = require('../middleware/auth');
 const autenticarProfissional = require('../middleware/authProfissional');
-const { definirCookie, limparCookie } = require('../utils/sessao');
-
-const NOME_COOKIE = 'fayola_prof';
-const SETE_DIAS = 7 * 24 * 60 * 60;
 
 const loginLimiter = rateLimit({
     windowMs: 15 * 60 * 1000,
     max: 10,
     message: { erro: 'Muitas tentativas de login. Tente novamente em alguns minutos.' }
-});
+}); 
 
 // Criar profissional (dono) — gera convite pra ele definir a própria senha
 router.post('/', autenticar, async (req, res) => {
@@ -155,7 +151,7 @@ router.post('/convite/:token/ativar', async (req, res) => {
     }
 });
 
-// Login do profissional (WhatsApp + senha) — token vai no cookie httpOnly
+// Login do profissional (WhatsApp + senha)
 router.post('/login', loginLimiter, async (req, res) => {
     const { whatsapp, senha } = req.body;
     try {
@@ -163,15 +159,11 @@ router.post('/login', loginLimiter, async (req, res) => {
             `SELECT * FROM profissionais WHERE whatsapp = $1 AND conta_ativada = TRUE`,
             [whatsapp]
         );
-        if (result.rows.length === 0) {
-            return res.status(401).json({ erro: 'WhatsApp ou senha incorretos' });
-        }
+        if (result.rows.length === 0) return res.status(401).json({ erro: 'WhatsApp não encontrado ou conta não ativada' });
 
         const profissional = result.rows[0];
         const valido = await bcrypt.compare(senha, profissional.senha);
-        if (!valido) {
-            return res.status(401).json({ erro: 'WhatsApp ou senha incorretos' });
-        }
+        if (!valido) return res.status(401).json({ erro: 'Senha incorreta' });
 
         const token = jwt.sign(
             { id: profissional.id, estabelecimento_id: profissional.estabelecimento_id, nome: profissional.nome, tipo: 'profissional' },
@@ -179,17 +171,10 @@ router.post('/login', loginLimiter, async (req, res) => {
             { expiresIn: '7d' }
         );
 
-        definirCookie(res, NOME_COOKIE, token, SETE_DIAS);
-        res.json({ profissional_id: profissional.id, nome: profissional.nome });
+        res.json({ token, profissional_id: profissional.id, nome: profissional.nome });
     } catch (err) {
         res.status(500).json({ erro: err.message });
     }
-});
-
-// Encerrar sessão do profissional
-router.post('/logout', function(req, res) {
-    limparCookie(res, NOME_COOKIE);
-    res.json({ mensagem: 'Sessão encerrada' });
 });
 
 // Marcar atendimento como concluído — calcula a comissão na hora
@@ -223,8 +208,8 @@ router.patch('/agendamentos/:id/concluir', autenticarProfissional, async (req, r
     }
 });
 
-// Listar profissionais ativos (público — usado na tela de agendamento).
-// Fica por último de propósito: é a rota coringa /:estabelecimento_id.
+// Listar profissionais ativos (público — usado na tela de agendamento). Fica por último de propósito:
+// é uma rota "coringa" (/:estabelecimento_id) e precisa vir depois de todas as rotas de caminho fixo acima.
 router.get('/:estabelecimento_id', async (req, res) => {
     try {
         const result = await pool.query(
@@ -238,7 +223,7 @@ router.get('/:estabelecimento_id', async (req, res) => {
 });
 
 // Excluir profissional
-router.delete('/:id', autenticar, async (req, res) => {
+    router.delete('/:id', autenticar, async (req, res) => {
     const { id: estabelecimentoId } = req.estabelecimento;
     try {
         const verifica = await pool.query(

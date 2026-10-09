@@ -5,10 +5,6 @@ const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 const rateLimit = require('express-rate-limit');
 const { notificarNovoCadastro } = require('../services/notificacao');
-const { definirCookie, limparCookie } = require('../utils/sessao');
-
-const NOME_COOKIE = 'fayola_dono';
-const SETE_DIAS = 7 * 24 * 60 * 60;
 
 const loginLimiter = rateLimit({
     windowMs: 15 * 60 * 1000,
@@ -23,7 +19,7 @@ router.post('/cadastro', async (req, res) => {
         const hash = await bcrypt.hash(senha, 10);
         const result = await pool.query(
             `INSERT INTO estabelecimentos (nome, tipo, telefone, email, senha, whatsapp, aprovado)
-             VALUES ($1, $2, $3, $4, $5, $6, FALSE) RETURNING id, nome, email, tipo, telefone`,
+             VALUES ($1, $2, $3, $4, $5, $6, FALSE) RETURNING id, nome, email, tipo`,
             [nome, tipo, telefone, email, hash, whatsapp]
         );
 
@@ -39,7 +35,7 @@ router.post('/cadastro', async (req, res) => {
     }
 });
 
-// Login do estabelecimento — o token vai num cookie httpOnly, não vai pro corpo da resposta
+// Login do estabelecimento — bloqueado até aprovação
 router.post('/login', loginLimiter, async (req, res) => {
     const { email, senha } = req.body;
     try {
@@ -47,17 +43,11 @@ router.post('/login', loginLimiter, async (req, res) => {
             'SELECT * FROM estabelecimentos WHERE email = $1',
             [email]
         );
-
-        // Mesma mensagem para e-mail inexistente e senha errada (não revela quais contas existem)
-        if (result.rows.length === 0) {
-            return res.status(401).json({ erro: 'Email ou senha incorretos' });
-        }
+        if (result.rows.length === 0) return res.status(401).json({ erro: 'Email não encontrado' });
 
         const estabelecimento = result.rows[0];
         const valido = await bcrypt.compare(senha, estabelecimento.senha);
-        if (!valido) {
-            return res.status(401).json({ erro: 'Email ou senha incorretos' });
-        }
+        if (!valido) return res.status(401).json({ erro: 'Senha incorreta' });
 
         if (!estabelecimento.aprovado) {
             return res.status(403).json({ erro: 'Sua conta ainda está aguardando aprovação. Você será avisado assim que for liberada.' });
@@ -69,17 +59,10 @@ router.post('/login', loginLimiter, async (req, res) => {
             { expiresIn: '7d' }
         );
 
-        definirCookie(res, NOME_COOKIE, token, SETE_DIAS);
-        res.json({ estabelecimento_id: estabelecimento.id, nome: estabelecimento.nome });
+        res.json({ token, estabelecimento_id: estabelecimento.id, nome: estabelecimento.nome });
     } catch (err) {
         res.status(500).json({ erro: err.message });
     }
-});
-
-// Encerrar sessão do estabelecimento
-router.post('/logout', function(req, res) {
-    limparCookie(res, NOME_COOKIE);
-    res.json({ mensagem: 'Sessão encerrada' });
 });
 
 // Dados públicos do estabelecimento
