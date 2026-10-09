@@ -253,4 +253,23 @@ router.patch('/:id/orcamento', autenticarProfissional, async (req, res) => {
     }
 });
 
+// Dono exclui um pedido que ainda não teve sinal pago
+router.delete('/:id', autenticar, async (req, res) => {
+    const { id: estabelecimentoId } = req.estabelecimento;
+    try {
+        const result = await pool.query(
+            `DELETE FROM pedidos_tattoo
+             WHERE id = $1 AND estabelecimento_id = $2 AND sinal_status != 'pago'
+             RETURNING id`,
+            [req.params.id, estabelecimentoId]
+        );
+        if (result.rows.length === 0) {
+            return res.status(404).json({ erro: 'Pedido não encontrado ou já pago (não pode ser excluído)' });
+        }
+        res.json({ mensagem: 'Pedido excluído' });
+    } catch (err) {
+        res.status(500).json({ erro: err.message });
+    }
+});
+
 module.exports = router;
