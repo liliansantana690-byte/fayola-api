@@ -60,35 +60,6 @@ router.get('/:token/status', async (req, res) => {
     }
 });
 
-// Horários já ocupados de um profissional num dia (público — usado pra cliente ver o que já está marcado)
-router.get('/horarios-ocupados', async (req, res) => {
-    const { profissional_id, data } = req.query;
-    try {
-        if (!profissional_id || !data) {
-            return res.status(400).json({ erro: 'Informe profissional_id e data (YYYY-MM-DD)' });
-        }
-
-        const result = await pool.query(
-            `SELECT data_hora, duracao_minutos
-             FROM pedidos_tattoo
-             WHERE profissional_id = $1
-               AND status = 'convertido_agendamento'
-               AND DATE(data_hora) = $2`,
-            [profissional_id, data]
-        );
-
-        const ocupados = result.rows.map(function(r) {
-            const inicio = new Date(r.data_hora);
-            const fim = new Date(inicio.getTime() + r.duracao_minutos * 60 * 1000);
-            return { inicio: inicio.toISOString(), fim: fim.toISOString() };
-        });
-
-        res.json(ocupados);
-    } catch (err) {
-        res.status(500).json({ erro: err.message });
-    }
-});
-
 // Gerar o PIX do sinal — identificado pelo token secreto
 router.post('/:token/gerar-pix', async (req, res) => {
     try {
@@ -156,7 +127,7 @@ router.patch('/:token/confirmar-horario', async (req, res) => {
             return res.status(400).json({ erro: 'O sinal ainda não foi pago' });
         }
 
-                const duracaoMinutos = pedido.duracao_minutos || 120;
+        const duracaoMinutos = pedido.duracao_minutos || 120;
         const inicioNovo = new Date(data_hora);
         const fimNovo = new Date(inicioNovo.getTime() + duracaoMinutos * 60 * 1000);
 
@@ -184,7 +155,7 @@ router.patch('/:token/confirmar-horario', async (req, res) => {
             if (!dentroDoExpediente) {
                 return res.status(409).json({ erro: 'Esse horário está fora do expediente do profissional. Escolha outro horário.' });
             }
-            
+
             const conflitosResult = await pool.query(
                 `SELECT id, data_hora, duracao_minutos
                  FROM pedidos_tattoo
