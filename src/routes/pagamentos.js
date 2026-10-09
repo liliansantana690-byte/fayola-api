@@ -4,9 +4,10 @@ const pool = require('../config/db');
 const { consultarPagamento } = require('../services/pagamento');
 const { obterTokenValido } = require('../services/mercadoPagoOAuth');
 const { notificarAgendamento, notificarEstabelecimento } = require('../services/notificacao');
+const validarWebhookMP = require('../middleware/validarWebhookMP');
 
-// Webhook do Mercado Pago — chamado automaticamente quando o status de um pagamento muda
-router.post('/webhook', async (req, res) => {
+// Webhook do Mercado Pago — só processa aviso com assinatura válida
+router.post('/webhook', validarWebhookMP, async (req, res) => {
     try {
         const paymentId = (req.body && req.body.data && req.body.data.id) || req.query['data.id'];
         const tipo = (req.body && req.body.type) || req.query.type;
@@ -24,24 +25,25 @@ router.post('/webhook', async (req, res) => {
         const estabelecimento = estabResult.rows[0];
         const accessToken = await obterTokenValido(pool, estabelecimento);
 
-                const pagamento = await consultarPagamento(accessToken, paymentId);
+        const pagamento = await consultarPagamento(accessToken, paymentId);
 
         if (pagamento.status !== 'approved') {
             return res.sendStatus(200);
         }
 
-        const referencia = pagamento.external_reference;
+        const referencia = String(pagamento.external_reference || '');
 
-        // Pagamento de sinal de PEDIDO DE TATTOO (referência tem o prefixo "tattoo-")
+        // Sinal de PEDIDO DE TATTOO (referência com prefixo "tattoo-")
         if (referencia.startsWith('tattoo-')) {
             const pedidoId = referencia.replace('tattoo-', '');
-            const resultPedido = await pool.query(
+            await pool.query(
                 `UPDATE pedidos_tattoo SET sinal_status = 'pago' WHERE id = $1 AND estabelecimento_id = $2 AND sinal_status != 'pago' RETURNING *`,
                 [pedidoId, estabelecimento.id]
             );
             return res.sendStatus(200);
         }
 
+        // Sinal de AGENDAMENTO comum
         const agendamentoId = referencia;
 
         // sinal_status != 'pago' evita reprocessar/duplicar notificação em reenvios do webhook
@@ -78,7 +80,7 @@ router.post('/webhook', async (req, res) => {
         res.sendStatus(200);
     } catch (err) {
         console.error('Erro no webhook Mercado Pago:', err.response?.data || err.message);
-        // Responde 200 mesmo em erro interno para o Mercado Pago não ficar reenviando indefinidamente
+        // 200 mesmo em erro interno, pra o Mercado Pago não ficar reenviando sem parar
         res.sendStatus(200);
     }
 });
