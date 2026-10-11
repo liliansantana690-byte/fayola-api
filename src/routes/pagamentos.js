@@ -87,25 +87,35 @@ router.post('/webhook', validarWebhookMP, async (req, res) => {
 });
 
 // Webhook da Kiwify — ETAPA DE RECEBIMENTO.
-// Valida o token e registra só os NOMES dos campos recebidos (nunca e-mail, CPF ou valores).
+// Valida o token. Quando recusa, registra o MOTIVO e só os NOMES de campos/cabeçalhos (nunca valores).
 // Ainda NÃO libera contas: isso entra depois que o formato real do aviso for conhecido.
 router.post('/kiwify', async (req, res) => {
     const tokenEsperado = process.env.KIWIFY_WEBHOOK_TOKEN;
-    const tokenRecebido = (req.body && req.body.token) || req.headers['x-kiwify-token'];
+    const corpo = req.body || {};
+    const tokenRecebido = corpo.token || req.headers['x-kiwify-token'];
 
-    if (!tokenEsperado || !tokenRecebido) {
+    function recusar(motivo) {
+        const cabecalhosX = Object.keys(req.headers).filter(function(h) { return h.startsWith('x-'); });
+        console.log('KIWIFY RECUSADO. Motivo: ' + motivo +
+            ' | Campos do corpo: ' + Object.keys(corpo).join(', ') +
+            ' | Cabecalhos x-: ' + cabecalhosX.join(', '));
         return res.sendStatus(401);
+    }
+
+    if (!tokenEsperado) {
+        return recusar('variavel KIWIFY_WEBHOOK_TOKEN vazia no servidor');
+    }
+    if (!tokenRecebido) {
+        return recusar('token nao veio no corpo (campo token) nem no cabecalho x-kiwify-token');
     }
 
     const bufRecebido = Buffer.from(String(tokenRecebido));
     const bufEsperado = Buffer.from(tokenEsperado);
     if (bufRecebido.length !== bufEsperado.length || !crypto.timingSafeEqual(bufRecebido, bufEsperado)) {
-        return res.sendStatus(401);
+        return recusar('token recebido nao confere com KIWIFY_WEBHOOK_TOKEN');
     }
 
-    const campos = Object.keys(req.body || {});
-    console.log('KIWIFY AVISO RECEBIDO. Campos:', campos.join(', '));
-
+    console.log('KIWIFY AVISO RECEBIDO. Campos: ' + Object.keys(corpo).join(', '));
     res.sendStatus(200);
 });
 
