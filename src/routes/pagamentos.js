@@ -1,3 +1,4 @@
+const crypto = require('crypto');
 const express = require('express');
 const router = express.Router();
 const pool = require('../config/db');
@@ -83,6 +84,29 @@ router.post('/webhook', validarWebhookMP, async (req, res) => {
         // 200 mesmo em erro interno, pra o Mercado Pago não ficar reenviando sem parar
         res.sendStatus(200);
     }
+});
+
+// Webhook da Kiwify — ETAPA DE RECEBIMENTO.
+// Valida o token e registra só os NOMES dos campos recebidos (nunca e-mail, CPF ou valores).
+// Ainda NÃO libera contas: isso entra depois que o formato real do aviso for conhecido.
+router.post('/kiwify', async (req, res) => {
+    const tokenEsperado = process.env.KIWIFY_WEBHOOK_TOKEN;
+    const tokenRecebido = (req.body && req.body.token) || req.headers['x-kiwify-token'];
+
+    if (!tokenEsperado || !tokenRecebido) {
+        return res.sendStatus(401);
+    }
+
+    const bufRecebido = Buffer.from(String(tokenRecebido));
+    const bufEsperado = Buffer.from(tokenEsperado);
+    if (bufRecebido.length !== bufEsperado.length || !crypto.timingSafeEqual(bufRecebido, bufEsperado)) {
+        return res.sendStatus(401);
+    }
+
+    const campos = Object.keys(req.body || {});
+    console.log('KIWIFY AVISO RECEBIDO. Campos:', campos.join(', '));
+
+    res.sendStatus(200);
 });
 
 module.exports = router;
