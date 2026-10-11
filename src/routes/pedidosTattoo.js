@@ -4,7 +4,6 @@ const crypto = require('crypto');
 const pool = require('../config/db');
 const autenticar = require('../middleware/auth');
 const autenticarProfissional = require('../middleware/authProfissional');
-const { notificarOrcamentoTattoo } = require('../services/notificacao');
 const { criarPagamentoPix } = require('../services/pagamento');
 const { obterTokenValido } = require('../services/mercadoPagoOAuth');
 
@@ -219,7 +218,7 @@ router.get('/meus-pedidos', autenticarProfissional, async (req, res) => {
     }
 });
 
-// Profissional define o orçamento (valor da tattoo + sinal + duração da sessão) — dispara WhatsApp pro cliente
+// Profissional define o orçamento (valor da tattoo + sinal + duração da sessão). Envio ao cliente é feito manualmente pelo botão de copiar.
 router.patch('/:id/orcamento', autenticarProfissional, async (req, res) => {
     const { valor_tattoo, valor_sinal, duracao_minutos } = req.body;
     try {
@@ -239,15 +238,7 @@ router.patch('/:id/orcamento', autenticarProfissional, async (req, res) => {
             return res.status(404).json({ erro: 'Pedido não encontrado' });
         }
 
-        const pedido = result.rows[0];
-
-        try {
-            await notificarOrcamentoTattoo({ ...pedido, link_base: process.env.APP_FRONTEND_URL });
-        } catch (err) {
-            console.error('Erro ao notificar orçamento tattoo:', err.message);
-        }
-
-        res.json(pedido);
+        res.json(result.rows[0]);
     } catch (err) {
         res.status(500).json({ erro: err.message });
     }
