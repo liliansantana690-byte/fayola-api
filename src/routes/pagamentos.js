@@ -87,8 +87,11 @@ router.post('/webhook', validarWebhookMP, async (req, res) => {
 });
 
 // Webhook da Kiwify — o token vai na URL do webhook (?token=...).
-// Quando recusa, registra o MOTIVO e só os NOMES de campos (nunca valores).
-// Ainda NÃO libera contas: isso entra depois de confirmarmos o tipo de evento.
+// Libera ou bloqueia a conta pelo e-mail do comprador.
+// Evento não mapeado: só registra no log, sem mexer em nenhuma conta.
+const KIWIFY_EVENTOS_LIBERAR = ['order_approved', 'subscription_renewed'];
+const KIWIFY_EVENTOS_BLOQUEAR = ['subscription_canceled'];
+
 router.post('/kiwify', async (req, res) => {
     const tokenEsperado = process.env.KIWIFY_WEBHOOK_TOKEN;
     const corpo = req.body || {};
@@ -112,8 +115,39 @@ router.post('/kiwify', async (req, res) => {
         return recusar('token recebido nao confere com KIWIFY_WEBHOOK_TOKEN');
     }
 
-    // Valores não-pessoais, só para confirmar o tipo de evento
-    console.log('KIWIFY AVISO RECEBIDO. Evento: ' + corpo.webhook_event_type + ' | Status do pedido: ' + corpo.order_status);
+    const evento = corpo.webhook_event_type;
+    console.log('KIWIFY AVISO RECEBIDO. Evento: ' + evento + ' | Status do pedido: ' + corpo.order_status);
+
+    let liberar = null;
+    if (KIWIFY_EVENTOS_LIBERAR.includes(evento)) liberar = true;
+    if (KIWIFY_EVENTOS_BLOQUEAR.includes(evento)) liberar = false;
+
+    if (liberar === null) {
+        console.log('KIWIFY EVENTO NAO MAPEADO (nenhuma conta alterada): ' + evento);
+        return res.sendStatus(200);
+    }
+
+    const email = corpo.Customer && corpo.Customer.email;
+    if (!email) {
+        console.error('KIWIFY: aviso sem e-mail do comprador (evento ' + evento + ')');
+        return res.sendStatus(200);
+    }
+
+    try {
+        const result = await pool.query(
+            'UPDATE estabelecimentos SET aprovado = $1 WHERE LOWER(email) = LOWER($2) RETURNING id',
+            [liberar, email]
+        );
+
+        if (result.rows.length === 0) {
+            console.error('KIWIFY: comprador sem conta no Fayola (evento ' + evento + ')');
+        } else {
+            console.log('KIWIFY CONTA ' + (liberar ? 'LIBERADA' : 'BLOQUEADA') + ' (evento ' + evento + ')');
+        }
+    } catch (err) {
+        console.error('Erro ao atualizar conta pela Kiwify:', err.message);
+    }
+
     res.sendStatus(200);
 });
 
