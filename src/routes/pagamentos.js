@@ -86,19 +86,16 @@ router.post('/webhook', validarWebhookMP, async (req, res) => {
     }
 });
 
-// Webhook da Kiwify — ETAPA DE RECEBIMENTO.
-// Valida o token. Quando recusa, registra o MOTIVO e só os NOMES de campos/cabeçalhos (nunca valores).
-// Ainda NÃO libera contas: isso entra depois que o formato real do aviso for conhecido.
+// Webhook da Kiwify — o token vai na URL do webhook (?token=...).
+// Quando recusa, registra o MOTIVO e só os NOMES de campos (nunca valores).
+// Ainda NÃO libera contas: isso entra depois de confirmarmos o tipo de evento.
 router.post('/kiwify', async (req, res) => {
     const tokenEsperado = process.env.KIWIFY_WEBHOOK_TOKEN;
     const corpo = req.body || {};
-    const tokenRecebido = corpo.token || req.headers['x-kiwify-token'];
+    const tokenRecebido = req.query.token || corpo.token || req.headers['x-kiwify-token'];
 
     function recusar(motivo) {
-        const cabecalhosX = Object.keys(req.headers).filter(function(h) { return h.startsWith('x-'); });
-        console.log('KIWIFY RECUSADO. Motivo: ' + motivo +
-            ' | Campos do corpo: ' + Object.keys(corpo).join(', ') +
-            ' | Cabecalhos x-: ' + cabecalhosX.join(', '));
+        console.log('KIWIFY RECUSADO. Motivo: ' + motivo + ' | Campos do corpo: ' + Object.keys(corpo).join(', '));
         return res.sendStatus(401);
     }
 
@@ -106,7 +103,7 @@ router.post('/kiwify', async (req, res) => {
         return recusar('variavel KIWIFY_WEBHOOK_TOKEN vazia no servidor');
     }
     if (!tokenRecebido) {
-        return recusar('token nao veio no corpo (campo token) nem no cabecalho x-kiwify-token');
+        return recusar('token nao veio na URL (?token=) nem no corpo nem no cabecalho');
     }
 
     const bufRecebido = Buffer.from(String(tokenRecebido));
@@ -115,7 +112,8 @@ router.post('/kiwify', async (req, res) => {
         return recusar('token recebido nao confere com KIWIFY_WEBHOOK_TOKEN');
     }
 
-    console.log('KIWIFY AVISO RECEBIDO. Campos: ' + Object.keys(corpo).join(', '));
+    // Valores não-pessoais, só para confirmar o tipo de evento
+    console.log('KIWIFY AVISO RECEBIDO. Evento: ' + corpo.webhook_event_type + ' | Status do pedido: ' + corpo.order_status);
     res.sendStatus(200);
 });
 
