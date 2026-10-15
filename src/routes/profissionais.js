@@ -7,6 +7,7 @@ const rateLimit = require('express-rate-limit');
 const pool = require('../config/db');
 const autenticar = require('../middleware/auth');
 const autenticarProfissional = require('../middleware/authProfissional');
+const { setAuthCookie } = require('../utils/authCookie');
 
 const loginLimiter = rateLimit({
     windowMs: 15 * 60 * 1000,
@@ -171,7 +172,8 @@ router.post('/login', loginLimiter, async (req, res) => {
             { expiresIn: '7d' }
         );
 
-        res.json({ token, profissional_id: profissional.id, nome: profissional.nome });
+        setAuthCookie(req, res, token);
+        res.json({ tipo: 'profissional', profissional_id: profissional.id, nome: profissional.nome });
     } catch (err) {
         res.status(500).json({ erro: err.message });
     }

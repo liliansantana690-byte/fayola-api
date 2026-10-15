@@ -5,6 +5,7 @@ const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 const rateLimit = require('express-rate-limit');
 const { notificarNovoCadastro } = require('../services/notificacao');
+const { setAuthCookie, clearAuthCookie, readAuthCookie } = require('../utils/authCookie');
 
 const loginLimiter = rateLimit({
     windowMs: 15 * 60 * 1000,
@@ -59,10 +60,36 @@ router.post('/login', loginLimiter, async (req, res) => {
             { expiresIn: '7d' }
         );
 
-        res.json({ token, estabelecimento_id: estabelecimento.id, nome: estabelecimento.nome });
+        setAuthCookie(req, res, token);
+        res.json({ tipo: 'estabelecimento', estabelecimento_id: estabelecimento.id, nome: estabelecimento.nome });
     } catch (err) {
         res.status(500).json({ erro: err.message });
     }
+});
+
+// Restaurar sessão em memória sem expor o JWT ao JavaScript do navegador.
+router.get('/sessao', (req, res) => {
+    const token = readAuthCookie(req);
+    if (!token) return res.status(401).json({ erro: 'Sessão não encontrada' });
+
+    try {
+        const dados = jwt.verify(token, process.env.JWT_SECRET);
+        if (dados.tipo === 'estabelecimento') {
+            return res.json({ tipo: dados.tipo, estabelecimento_id: dados.id, nome: dados.nome });
+        }
+        if (dados.tipo === 'profissional') {
+            return res.json({ tipo: dados.tipo, profissional_id: dados.id, nome: dados.nome });
+        }
+        return res.status(401).json({ erro: 'Sessão inválida' });
+    } catch (err) {
+        clearAuthCookie(req, res);
+        return res.status(401).json({ erro: 'Sessão expirada' });
+    }
+});
+
+router.post('/logout', (req, res) => {
+    clearAuthCookie(req, res);
+    res.json({ mensagem: 'Sessão encerrada' });
 });
 
 // Dados públicos do estabelecimento

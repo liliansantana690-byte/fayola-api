@@ -1,7 +1,8 @@
 const jwt = require('jsonwebtoken');
+const { readAuthCookie } = require('../utils/authCookie');
 
 function autenticar(req, res, next) {
-    const token = req.headers.authorization?.split(' ')[1];
+    const token = readAuthCookie(req);
     if (!token) return res.status(401).json({ erro: 'Token não fornecido' });
 
     try {

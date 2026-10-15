@@ -10,7 +10,19 @@ const origensPermitidas = [
     process.env.APP_FRONTEND_URL
 ].filter(Boolean);
 
+// Rejeita mutações iniciadas por páginas de outras origens (proteção CSRF por Origin).
+// Requisições sem Origin continuam permitidas para webhooks e integrações servidor-servidor.
+app.use((req, res, next) => {
+    const metodosSeguros = ['GET', 'HEAD', 'OPTIONS'];
+    const origin = req.get('Origin');
+    if (!metodosSeguros.includes(req.method) && origin && !origensPermitidas.includes(origin)) {
+        return res.status(403).json({ erro: 'Origem não permitida' });
+    }
+    next();
+});
+
 app.use(cors({
+    credentials: true,
     origin: function(origin, callback) {
         if (!origin || origensPermitidas.includes(origin)) {
             callback(null, true);
