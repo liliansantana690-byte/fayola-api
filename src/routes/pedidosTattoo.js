@@ -7,23 +7,63 @@ const autenticarProfissional = require('../middleware/authProfissional');
 const { criarPagamentoPix } = require('../services/pagamento');
 const { obterTokenValido } = require('../services/mercadoPagoOAuth');
 
+const CAMPOS_ANAMNESE = [
+    'alergias', 'condicoes_sanguineas', 'condicao_cardiaca', 'gravidez_amamentacao',
+    'pele_cicatrizacao', 'medicamentos', 'reacao_anterior', 'alcool_drogas', 'outra_condicao'
+];
+const VERSAO_CONSENTIMENTO_ANAMNESE = 'anamnese-tattoo-v1';
+
 const EXPIRATION_MINUTES = Number(process.env.DEPOSIT_EXPIRATION_MINUTES) || 15;
 
 // Cliente envia o pedido de tattoo (público)
 router.post('/', async (req, res) => {
     const {
         estabelecimento_id, profissional_id, cliente_nome, cliente_whatsapp,
-        descricao, estilo, tamanho_aproximado, local_corpo, referencia_url, observacoes
+        descricao, estilo, tamanho_aproximado, local_corpo, referencia_url, observacoes,
+        respostas_anamnese, consentimento_anamnese, versao_consentimento_anamnese
     } = req.body;
 
+    const dbClient = await pool.connect();
     try {
         if (!descricao || !cliente_nome || !cliente_whatsapp) {
             return res.status(400).json({ erro: 'Descrição, nome e WhatsApp são obrigatórios' });
         }
 
+        if (consentimento_anamnese !== true || versao_consentimento_anamnese !== VERSAO_CONSENTIMENTO_ANAMNESE) {
+            return res.status(400).json({ erro: 'O consentimento para o uso das informações de saúde é obrigatório' });
+        }
+        if (!profissional_id) {
+            return res.status(400).json({ erro: 'Selecione o tatuador responsável pelo pedido' });
+        }
+
+        const respostasValidadas = {};
+        for (const campo of CAMPOS_ANAMNESE) {
+            const resposta = respostas_anamnese?.[campo];
+            if (!resposta || !['sim', 'nao'].includes(resposta.resposta)) {
+                return res.status(400).json({ erro: 'Responda todas as perguntas da ficha de saúde' });
+            }
+            respostasValidadas[campo] = {
+                resposta: resposta.resposta,
+                detalhe: typeof resposta.detalhe === 'string' ? resposta.detalhe.trim().slice(0, 1000) : ''
+            };
+        }
+
+        const estabelecimento = await dbClient.query('SELECT id FROM estabelecimentos WHERE id = $1', [estabelecimento_id]);
+        if (estabelecimento.rows.length === 0) {
+            return res.status(400).json({ erro: 'Estabelecimento não encontrado' });
+        }
+        const profissional = await dbClient.query(
+            'SELECT id FROM profissionais WHERE id = $1 AND estabelecimento_id = $2',
+            [profissional_id, estabelecimento_id]
+        );
+        if (profissional.rows.length === 0) {
+            return res.status(400).json({ erro: 'Tatuador inválido para este estabelecimento' });
+        }
+
         const tokenAcesso = crypto.randomBytes(24).toString('hex');
 
-        const result = await pool.query(
+        await dbClient.query('BEGIN');
+        const result = await dbClient.query(
             `INSERT INTO pedidos_tattoo
                 (estabelecimento_id, profissional_id, cliente_nome, cliente_whatsapp,
                  descricao, estilo, tamanho_aproximado, local_corpo, referencia_url, observacoes, token_acesso)
@@ -35,9 +75,29 @@ router.post('/', async (req, res) => {
             ]
         );
 
-        res.status(201).json(result.rows[0]);
+        await dbClient.query(
+            `INSERT INTO pedidos_tattoo_anamnese
+                (pedido_id, respostas, consentimento, consentimento_versao, consentimento_em)
+             VALUES ($1, $2::jsonb, true, $3, NOW())`,
+            [result.rows[0].id, JSON.stringify(respostasValidadas), VERSAO_CONSENTIMENTO_ANAMNESE]
+        );
+        await dbClient.query('COMMIT');
+
+        const pedido = result.rows[0];
+        res.status(201).json({
+            id: pedido.id,
+            estabelecimento_id: pedido.estabelecimento_id,
+            profissional_id: pedido.profissional_id,
+            cliente_nome: pedido.cliente_nome,
+            status: pedido.status,
+            token_acesso: pedido.token_acesso
+        });
     } catch (err) {
+        await dbClient.query('ROLLBACK').catch(function() {});
+        console.error('Erro ao salvar pedido e ficha de saúde:', err.message);
         res.status(400).json({ erro: err.message });
+    } finally {
+        dbClient.release();
     }
 });
 
@@ -209,7 +269,15 @@ router.get('/', autenticar, async (req, res) => {
 router.get('/meus-pedidos', autenticarProfissional, async (req, res) => {
     try {
         const result = await pool.query(
-            `SELECT * FROM pedidos_tattoo WHERE profissional_id = $1 ORDER BY criado_em DESC`,
+            `SELECT pt.*,
+                    a.respostas AS anamnese_respostas,
+                    a.consentimento,
+                    a.consentimento_versao,
+                    a.consentimento_em
+             FROM pedidos_tattoo pt
+             LEFT JOIN pedidos_tattoo_anamnese a ON a.pedido_id = pt.id
+             WHERE pt.profissional_id = $1
+             ORDER BY pt.criado_em DESC`,
             [req.profissional.id]
         );
         res.json(result.rows);
