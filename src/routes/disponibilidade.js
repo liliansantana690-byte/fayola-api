@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const pool = require('../config/db');
 const autenticarProfissional = require('../middleware/authProfissional');
+const { buscarDisponibilidadeDia, validarData } = require('../utils/disponibilidade');
 
 // Horário de funcionamento semanal do profissional (público)
 router.get('/horarios/:profissional_id', async (req, res) => {
@@ -101,52 +102,13 @@ router.delete('/bloqueios/:id', autenticarProfissional, async (req, res) => {
 router.get('/dia', async (req, res) => {
     const { profissional_id, data } = req.query;
     try {
-        if (!profissional_id || !data) {
+        if (!/^\d+$/.test(String(profissional_id || '')) || !validarData(data)) {
             return res.status(400).json({ erro: 'Informe profissional_id e data (YYYY-MM-DD)' });
         }
-
-        const diaSemana = new Date(data + 'T12:00:00').getDay();
-
-        const bloqueioResult = await pool.query(
-            `SELECT id FROM dias_bloqueados WHERE profissional_id = $1 AND data = $2`,
-            [profissional_id, data]
-        );
-
-        if (bloqueioResult.rows.length > 0) {
-            return res.json({ aberto: false, motivo: 'Dia bloqueado pelo profissional', horario: null, ocupados: [] });
-        }
-
-        const horarioResult = await pool.query(
-            `SELECT hora_inicio, hora_fim FROM horarios_profissional
-             WHERE profissional_id = $1 AND dia_semana = $2
-             ORDER BY hora_inicio LIMIT 1`,
-            [profissional_id, diaSemana]
-        );
-
-        if (horarioResult.rows.length === 0) {
-            return res.json({ aberto: false, motivo: 'Profissional não atende nesse dia da semana', horario: null, ocupados: [] });
-        }
-
-        const ocupadosResult = await pool.query(
-            `SELECT data_hora, duracao_minutos FROM pedidos_tattoo
-             WHERE profissional_id = $1 AND status = 'convertido_agendamento' AND DATE(data_hora) = $2`,
-            [profissional_id, data]
-        );
-
-        const ocupados = ocupadosResult.rows.map(function(r) {
-            const inicio = new Date(r.data_hora);
-            const fim = new Date(inicio.getTime() + r.duracao_minutos * 60 * 1000);
-            return { inicio: inicio.toISOString(), fim: fim.toISOString() };
-        });
-
-        res.json({
-            aberto: true,
-            motivo: null,
-            horario: horarioResult.rows[0],
-            ocupados
-        });
+        return res.json(await buscarDisponibilidadeDia(pool, Number(profissional_id), data));
     } catch (err) {
-        res.status(500).json({ erro: err.message });
+        console.error('ERRO AO CONSULTAR DISPONIBILIDADE:', err.message);
+        return res.status(500).json({ erro: 'Não foi possível consultar a disponibilidade.' });
     }
 });
 

@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const crypto = require('crypto');
 const pool = require('../config/db');
+const { normalizarDataHora, validarHorarioDisponivel } = require('../utils/disponibilidade');
 const autenticar = require('../middleware/auth');
 const autenticarProfissional = require('../middleware/authProfissional');
 const { criarPagamentoPix } = require('../services/pagamento');
@@ -170,83 +171,42 @@ router.post('/:token/gerar-pix', async (req, res) => {
 
 // Cliente escolhe o horário depois de pagar o sinal — identificado pelo token secreto
 router.patch('/:token/confirmar-horario', async (req, res) => {
-    const { data_hora } = req.body;
+    const dataHora = normalizarDataHora(req.body.data_hora);
+    let client;
     try {
-        if (!data_hora) {
-            return res.status(400).json({ erro: 'Informe a data e horário' });
-        }
-
+        if (!dataHora) return res.status(400).json({ erro: 'Informe uma data e horário válidos.' });
         const pedidoResult = await pool.query('SELECT * FROM pedidos_tattoo WHERE token_acesso = $1', [req.params.token]);
-        if (pedidoResult.rows.length === 0) {
-            return res.status(404).json({ erro: 'Pedido não encontrado' });
-        }
-        const pedido = pedidoResult.rows[0];
+        if (!pedidoResult.rows.length) return res.status(404).json({ erro: 'Pedido não encontrado' });
+        const pedidoInicial = pedidoResult.rows[0];
+        if (pedidoInicial.sinal_status !== 'pago') return res.status(400).json({ erro: 'O sinal ainda não foi pago' });
+        if (!pedidoInicial.profissional_id) return res.status(400).json({ erro: 'Este pedido ainda não tem um profissional atribuído.' });
 
-        if (pedido.sinal_status !== 'pago') {
-            return res.status(400).json({ erro: 'O sinal ainda não foi pago' });
-        }
-
+        client = await pool.connect();
+        await client.query('BEGIN');
+        await client.query('SELECT pg_advisory_xact_lock($1::int, hashtext($2))', [pedidoInicial.profissional_id, dataHora.slice(0, 10)]);
+        const pedidoAtualResult = await client.query('SELECT * FROM pedidos_tattoo WHERE id = $1 FOR UPDATE', [pedidoInicial.id]);
+        const pedido = pedidoAtualResult.rows[0];
+        if (pedido.sinal_status !== 'pago') throw Object.assign(new Error('O sinal ainda não foi pago'), { statusCode: 400 });
         const duracaoMinutos = pedido.duracao_minutos || 120;
-        const inicioNovo = new Date(data_hora);
-        const fimNovo = new Date(inicioNovo.getTime() + duracaoMinutos * 60 * 1000);
-
-        if (pedido.profissional_id) {
-            const dataSomente = data_hora.split('T')[0];
-            const diaSemana = inicioNovo.getDay();
-
-            const bloqueioResult = await pool.query(
-                `SELECT id FROM dias_bloqueados WHERE profissional_id = $1 AND data = $2`,
-                [pedido.profissional_id, dataSomente]
-            );
-            if (bloqueioResult.rows.length > 0) {
-                return res.status(409).json({ erro: 'O profissional não atende nesse dia. Escolha outra data.' });
-            }
-
-            const horarioResult = await pool.query(
-                `SELECT hora_inicio, hora_fim FROM horarios_profissional
-                 WHERE profissional_id = $1 AND dia_semana = $2`,
-                [pedido.profissional_id, diaSemana]
-            );
-            const horaEscolhida = inicioNovo.toTimeString().slice(0, 8);
-            const dentroDoExpediente = horarioResult.rows.some(function(h) {
-                return horaEscolhida >= h.hora_inicio && horaEscolhida <= h.hora_fim;
-            });
-            if (!dentroDoExpediente) {
-                return res.status(409).json({ erro: 'Esse horário está fora do expediente do profissional. Escolha outro horário.' });
-            }
-
-            const conflitosResult = await pool.query(
-                `SELECT id, data_hora, duracao_minutos
-                 FROM pedidos_tattoo
-                 WHERE profissional_id = $1
-                   AND status = 'convertido_agendamento'
-                   AND id != $2`,
-                [pedido.profissional_id, pedido.id]
-            );
-
-            const temConflito = conflitosResult.rows.some(function(outro) {
-                const inicioOutro = new Date(outro.data_hora);
-                const fimOutro = new Date(inicioOutro.getTime() + (outro.duracao_minutos || 120) * 60 * 1000);
-                return inicioNovo < fimOutro && inicioOutro < fimNovo;
-            });
-
-            if (temConflito) {
-                return res.status(409).json({ erro: 'Esse horário já está ocupado para este profissional. Escolha outro horário.' });
-            }
-        }
-
-        const result = await pool.query(
-            `UPDATE pedidos_tattoo SET data_hora = $1, status = 'convertido_agendamento', atualizado_em = NOW()
-             WHERE id = $2 RETURNING *`,
-            [data_hora, pedido.id]
+        await validarHorarioDisponivel(client, pedido.profissional_id, dataHora, duracaoMinutos, { excluirPedidoTattooId: pedido.id });
+        const result = await client.query(
+            "UPDATE pedidos_tattoo SET data_hora = $1::timestamp, status = 'convertido_agendamento', atualizado_em = NOW() WHERE id = $2 RETURNING *",
+            [dataHora.replace('T', ' '), pedido.id]
         );
-
-        res.json(result.rows[0]);
+        await client.query('COMMIT');
+        client.release();
+        client = null;
+        return res.json(result.rows[0]);
     } catch (err) {
-        res.status(500).json({ erro: err.message });
+        if (client) {
+            try { await client.query('ROLLBACK'); } catch (_) { /* conexão pode já ter encerrado */ }
+            client.release();
+        }
+        return res.status(err.statusCode || 500).json({ erro: err.message || 'Não foi possível confirmar o horário.' });
     }
 });
 
+// Cliente escolhe o horário depois de pagar o sinal — identificado pelo token secreto
 // Listar pedidos do estabelecimento (dono)
 router.get('/', autenticar, async (req, res) => {
     const { id } = req.estabelecimento;
