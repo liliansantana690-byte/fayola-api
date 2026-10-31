@@ -44,7 +44,7 @@ router.get('/', autenticar, async (req, res) => {
     try {
         const result = await pool.query(
             `SELECT id, nome, especialidade, whatsapp, conta_ativada, convite_token, ativo
-             FROM profissionais WHERE estabelecimento_id = $1 ORDER BY nome`,
+             FROM profissionais WHERE estabelecimento_id = $1 AND ativo = TRUE ORDER BY nome`,
             [id]
         );
         const profissionais = result.rows.map(function(p) {
@@ -157,7 +157,7 @@ router.post('/login', loginLimiter, async (req, res) => {
     const { whatsapp, senha } = req.body;
     try {
         const result = await pool.query(
-            `SELECT * FROM profissionais WHERE whatsapp = $1 AND conta_ativada = TRUE`,
+            `SELECT * FROM profissionais WHERE whatsapp = $1 AND conta_ativada = TRUE AND ativo = TRUE`,
             [whatsapp]
         );
         if (result.rows.length === 0) return res.status(401).json({ erro: 'WhatsApp não encontrado ou conta não ativada' });
@@ -224,24 +224,19 @@ router.get('/:estabelecimento_id', async (req, res) => {
     }
 });
 
-// Excluir profissional
-    router.delete('/:id', autenticar, async (req, res) => {
+// Remover membro da equipe sem apagar o histórico de agendamentos.
+router.delete('/:id', autenticar, async (req, res) => {
     const { id: estabelecimentoId } = req.estabelecimento;
     try {
-        const verifica = await pool.query(
-            'SELECT id FROM profissionais WHERE id = $1 AND estabelecimento_id = $2',
+        const result = await pool.query(
+            'UPDATE profissionais SET ativo = FALSE WHERE id = $1 AND estabelecimento_id = $2 AND ativo = TRUE RETURNING id',
             [req.params.id, estabelecimentoId]
         );
-        if (verifica.rows.length === 0) {
-            return res.status(404).json({ erro: 'Profissional não encontrado' });
-        }
-        await pool.query('UPDATE pedidos_tattoo SET profissional_id = NULL WHERE profissional_id = $1', [req.params.id]);
-        await pool.query('DELETE FROM agendamentos WHERE profissional_id = $1', [req.params.id]);
-        await pool.query('DELETE FROM profissionais WHERE id = $1', [req.params.id]);
-        res.json({ mensagem: 'Profissional excluído' });
+        if (!result.rows.length) return res.status(404).json({ erro: 'Profissional não encontrado ou já removido da equipe.' });
+        return res.json({ mensagem: 'Membro removido da equipe; histórico preservado.' });
     } catch (err) {
-        console.error('ERRO AO EXCLUIR PROFISSIONAL:', err.message);
-        res.status(500).json({ erro: err.message });
+        console.error('ERRO AO REMOVER PROFISSIONAL:', err.message);
+        return res.status(500).json({ erro: 'Não foi possível remover o profissional.' });
     }
 });
 
