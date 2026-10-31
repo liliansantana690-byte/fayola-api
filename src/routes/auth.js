@@ -60,7 +60,7 @@ router.post('/login', loginLimiter, async (req, res) => {
             { expiresIn: '7d' }
         );
 
-        setAuthCookie(req, res, token);
+        setAuthCookie(req, res, token, 'estabelecimento');
         res.json({ tipo: 'estabelecimento', estabelecimento_id: estabelecimento.id, nome: estabelecimento.nome });
     } catch (err) {
         res.status(500).json({ erro: err.message });
@@ -69,26 +69,29 @@ router.post('/login', loginLimiter, async (req, res) => {
 
 // Restaurar sessão em memória sem expor o JWT ao JavaScript do navegador.
 router.get('/sessao', (req, res) => {
-    const token = readAuthCookie(req);
+    const tipoSolicitado = req.query.tipo;
+    if (tipoSolicitado && !['estabelecimento', 'profissional'].includes(tipoSolicitado)) {
+        return res.status(400).json({ erro: 'Tipo de sessão inválido' });
+    }
+    const token = readAuthCookie(req, tipoSolicitado);
     if (!token) return res.status(401).json({ erro: 'Sessão não encontrada' });
-
     try {
         const dados = jwt.verify(token, process.env.JWT_SECRET);
-        if (dados.tipo === 'estabelecimento') {
-            return res.json({ tipo: dados.tipo, estabelecimento_id: dados.id, nome: dados.nome });
+        if (tipoSolicitado && dados.tipo !== tipoSolicitado) {
+            return res.status(401).json({ erro: 'Sessão não encontrada para este painel' });
         }
-        if (dados.tipo === 'profissional') {
-            return res.json({ tipo: dados.tipo, profissional_id: dados.id, nome: dados.nome });
-        }
+        if (dados.tipo === 'estabelecimento') return res.json({ tipo: dados.tipo, estabelecimento_id: dados.id, nome: dados.nome });
+        if (dados.tipo === 'profissional') return res.json({ tipo: dados.tipo, profissional_id: dados.id, nome: dados.nome });
         return res.status(401).json({ erro: 'Sessão inválida' });
     } catch (err) {
-        clearAuthCookie(req, res);
+        clearAuthCookie(req, res, tipoSolicitado);
         return res.status(401).json({ erro: 'Sessão expirada' });
     }
 });
 
 router.post('/logout', (req, res) => {
-    clearAuthCookie(req, res);
+    const tipo = req.body?.tipo || req.query.tipo;
+    clearAuthCookie(req, res, tipo);
     res.json({ mensagem: 'Sessão encerrada' });
 });
 

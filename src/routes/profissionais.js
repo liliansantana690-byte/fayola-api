@@ -172,7 +172,7 @@ router.post('/login', loginLimiter, async (req, res) => {
             { expiresIn: '7d' }
         );
 
-        setAuthCookie(req, res, token);
+        setAuthCookie(req, res, token, 'profissional');
         res.json({ tipo: 'profissional', profissional_id: profissional.id, nome: profissional.nome });
     } catch (err) {
         res.status(500).json({ erro: err.message });
