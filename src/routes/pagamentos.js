@@ -52,6 +52,7 @@ router.post('/webhook', validarWebhookMP, async (req, res) => {
             `UPDATE agendamentos
              SET status = 'confirmado', sinal_status = 'pago'
              WHERE id = $1 AND estabelecimento_id = $2 AND sinal_status != 'pago'
+               AND status = 'aguardando_pagamento' AND expira_em > NOW()
              RETURNING *`,
             [agendamentoId, estabelecimento.id]
         );

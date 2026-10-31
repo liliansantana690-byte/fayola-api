@@ -53,7 +53,7 @@ router.post('/', async (req, res) => {
         client.release();
         client = null;
         const accessToken = await obterTokenValido(pool, estabelecimento);
-        const pix = await criarPagamentoPix({ accessToken, valor: sinalValor, descricao: 'Sinal - ' + servico.nome, agendamentoId: agendamento.id, clienteWhatsapp: cliente_whatsapp });
+        const pix = await criarPagamentoPix({ accessToken, valor: sinalValor, descricao: 'Sinal - ' + servico.nome, agendamentoId: agendamento.id, clienteWhatsapp: cliente_whatsapp, idempotencyKey: 'fayola-agendamento-' + agendamento.id, expiraEm });
         await pool.query('UPDATE agendamentos SET mp_payment_id = $1 WHERE id = $2', [pix.mp_payment_id, agendamento.id]);
         return res.status(201).json({ agendamento, pagamento: { qr_code: pix.qr_code, qr_code_base64: pix.qr_code_base64, expira_em: agendamento.expira_em } });
     } catch (err) {

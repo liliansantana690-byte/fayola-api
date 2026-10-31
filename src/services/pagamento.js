@@ -9,19 +9,22 @@ function criarClientePix(accessToken) {
  * Cria uma cobrança PIX usando o access_token DO ESTABELECIMENTO (não um token fixo da plataforma).
  * O dinheiro cai direto na conta Mercado Pago do dono do salão/barbearia.
  */
-async function criarPagamentoPix({ accessToken, valor, descricao, agendamentoId, clienteWhatsapp }) {
+async function criarPagamentoPix({ accessToken, valor, descricao, agendamentoId, clienteWhatsapp, idempotencyKey, expiraEm }) {
     const paymentClient = criarClientePix(accessToken);
     const emailPagador = `cliente${clienteWhatsapp}@fayola.app`;
 
-    const resultado = await paymentClient.create({
-        body: {
+    const body = {
             transaction_amount: Number(valor.toFixed(2)),
             description: descricao,
             payment_method_id: 'pix',
             payer: { email: emailPagador },
             external_reference: String(agendamentoId),
-            notification_url: `${process.env.APP_API_URL}/api/pagamentos/webhook`
-        }
+            notification_url: `${process.env.APP_API_URL}/api/pagamentos/webhook`,
+            ...(expiraEm ? { date_of_expiration: new Date(expiraEm).toISOString() } : {})
+    };
+    const resultado = await paymentClient.create({
+        body,
+        ...(idempotencyKey ? { requestOptions: { idempotencyKey } } : {})
     });
 
     const dadosTransacao = resultado.point_of_interaction.transaction_data;
@@ -39,4 +42,9 @@ async function consultarPagamento(accessToken, paymentId) {
     return paymentClient.get({ id: paymentId });
 }
 
-module.exports = { criarPagamentoPix, consultarPagamento };
+async function cancelarPagamento(accessToken, paymentId) {
+    const paymentClient = criarClientePix(accessToken);
+    return paymentClient.cancel({ id: paymentId });
+}
+
+module.exports = { criarPagamentoPix, consultarPagamento, cancelarPagamento };
