@@ -1,5 +1,6 @@
 const axios = require('axios');
 const jwt = require('jsonwebtoken');
+const { cifrar, decifrar, estaCriptografado } = require('../utils/cripto');
 
 const MP_OAUTH_BASE = 'https://api.mercadopago.com/oauth/token';
 const MP_AUTH_BASE = 'https://auth.mercadopago.com.br/authorization';
@@ -32,7 +33,7 @@ async function trocarCodePorToken(code) {
     return resp.data; // { access_token, refresh_token, user_id, public_key, expires_in, ... }
 }
 
-// Renova o access_token de um estabelecimento usando o refresh_token guardado
+// Renova o access_token de um estabelecimento usando o refresh_token (já decifrado)
 async function renovarToken(refreshToken) {
     const resp = await axios.post(MP_OAUTH_BASE, {
         client_id: process.env.MP_CLIENT_ID,
@@ -43,21 +44,32 @@ async function renovarToken(refreshToken) {
     return resp.data;
 }
 
-// Garante um access_token válido do estabelecimento, renovando se estiver perto de expirar
+// Garante um access_token válido do estabelecimento, renovando se estiver perto de expirar.
+// Os tokens ficam criptografados no banco. Se algum ainda estiver em texto puro (legado),
+// ele é criptografado na primeira vez que for usado.
 async function obterTokenValido(pool, estabelecimento) {
+    const accessAtual = decifrar(estabelecimento.mp_access_token);
+    const refreshAtual = decifrar(estabelecimento.mp_refresh_token);
+
     const expiraEm = estabelecimento.mp_token_expira_em ? new Date(estabelecimento.mp_token_expira_em) : null;
     const prestesAExpirar = !expiraEm || expiraEm.getTime() - Date.now() < 10 * 60 * 1000; // 10 min de folga
 
     if (!prestesAExpirar) {
-        return estabelecimento.mp_access_token;
+        if (!estaCriptografado(estabelecimento.mp_access_token)) {
+            await pool.query(
+                `UPDATE estabelecimentos SET mp_access_token = $1, mp_refresh_token = $2 WHERE id = $3`,
+                [cifrar(accessAtual), cifrar(refreshAtual), estabelecimento.id]
+            );
+        }
+        return accessAtual;
     }
 
-    const novoToken = await renovarToken(estabelecimento.mp_refresh_token);
+    const novoToken = await renovarToken(refreshAtual);
     const novaExpiracao = new Date(Date.now() + novoToken.expires_in * 1000);
 
     await pool.query(
         `UPDATE estabelecimentos SET mp_access_token = $1, mp_refresh_token = $2, mp_token_expira_em = $3 WHERE id = $4`,
-        [novoToken.access_token, novoToken.refresh_token, novaExpiracao, estabelecimento.id]
+        [cifrar(novoToken.access_token), cifrar(novoToken.refresh_token), novaExpiracao, estabelecimento.id]
     );
 
     return novoToken.access_token;

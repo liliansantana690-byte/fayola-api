@@ -4,6 +4,7 @@ const jwt = require('jsonwebtoken');
 const pool = require('../config/db');
 const autenticar = require('../middleware/auth');
 const { gerarUrlAutorizacao, trocarCodePorToken } = require('../services/mercadoPagoOAuth');
+const { cifrar } = require('../utils/cripto');
 
 // Dono clica em "Conectar Mercado Pago" — devolve a URL de autorização
 router.get('/conectar', autenticar, async (req, res) => {
@@ -49,14 +50,15 @@ router.get('/callback', async (req, res) => {
         const tokenData = await trocarCodePorToken(code);
         const expiraEm = new Date(Date.now() + tokenData.expires_in * 1000);
 
+        // Os tokens são criptografados antes de ir pro banco
         await pool.query(
             `UPDATE estabelecimentos
              SET mp_access_token = $1, mp_refresh_token = $2, mp_user_id = $3,
                  mp_public_key = $4, mp_token_expira_em = $5, mp_conectado = TRUE
              WHERE id = $6`,
             [
-                tokenData.access_token,
-                tokenData.refresh_token,
+                cifrar(tokenData.access_token),
+                cifrar(tokenData.refresh_token),
                 String(tokenData.user_id),
                 tokenData.public_key,
                 expiraEm,
