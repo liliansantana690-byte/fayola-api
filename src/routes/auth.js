@@ -41,7 +41,7 @@ router.post('/login', loginLimiter, async (req, res) => {
     const { email, senha } = req.body;
     try {
         const result = await pool.query(
-            'SELECT * FROM estabelecimentos WHERE email = $1',
+        'SELECT * FROM estabelecimentos WHERE LOWER(email) = LOWER($1)',
             [email]
         );
         if (result.rows.length === 0) return res.status(401).json({ erro: 'Email não encontrado' });
